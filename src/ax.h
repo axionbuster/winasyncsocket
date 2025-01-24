@@ -1,3 +1,6 @@
+// ax.h -- BSD-3-Clause
+// Copyright (C) axionbuster 2025
+
 #ifndef AX_H
 #define AX_H
 

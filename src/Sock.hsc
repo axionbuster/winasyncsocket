@@ -7,6 +7,8 @@ License     : BSD-3-Clause
 This module provides low-level bindings to the Windows Sockets 2 API (Winsock2).
 It includes socket operations, constants, and data structures needed for network
 programming on Windows platforms.
+
+Portions of this code are interpreted from Tamar Christina.
 -}
 module Sock 
   ( -- * Types
@@ -18,6 +20,8 @@ module Sock
   , AddrInfo
   , SocketError(..)
   , ShutdownHow(..)
+  , WSABUF(..)
+  , LPWSABUF
     -- * Type Patterns
   , pattern AF_INET
   , pattern AF_INET6
@@ -27,6 +31,8 @@ module Sock
   , pattern Success
   , pattern WouldBlock
   , pattern NotSupported
+  , pattern ConnectionReset
+  , pattern Pending
   , pattern INVALID_SOCKET
   , pattern SOCKET_ERROR
   , pattern SD_RECEIVE
@@ -41,6 +47,12 @@ module Sock
   , loadvt
   , shutdown
   , closesocket
+  , acceptex
+  , connectex
+  , recv
+  , recvmany
+  , send
+  , sendmany
   ) where
 
 -- frustratingly, formatter 'ormolu' doesn't work.
@@ -84,6 +96,9 @@ pattern NotSupported = SocketError #{const WSAVERNOTSUPPORTED}
 
 pattern ConnectionReset :: SocketError 
 pattern ConnectionReset = SocketError #{const WSAECONNRESET}
+
+pattern Pending :: SocketError
+pattern Pending = SocketError #{const ERROR_IO_PENDING}
 
 throwsk :: SocketError -> IO a
 throwsk = throwIO
@@ -167,7 +182,9 @@ foreign import capi "winsock2.h WSAGetLastError"
 
 ok :: IO a -> CInt -> IO a
 ok a 0 = a
-ok _ _ = wsagetlasterror >>= throwsk
+ok a _ = wsagetlasterror >>= \case
+  Pending -> a
+  e -> throwsk e
 
 -- | get the address info for the given node, service, and hints
 getaddrinfo :: String -> String -> Maybe ADDRINFOW -> IO AddrInfo
@@ -362,3 +379,103 @@ foreign import capi "winsock2.h closesocket"
 -- - system may immediately reuse socket number.
 closesocket :: SOCKET -> IO ()
 closesocket = c_closesocket >=> ok do pure ()
+
+type AcceptEx = SOCKET -> SOCKET -> LPVOID ->
+                DWORD -> DWORD -> DWORD -> LPDWORD -> LPOVERLAPPED ->
+                IO CBool
+
+foreign import ccall "dynamic"
+  vt_acceptex :: FunPtr AcceptEx -> AcceptEx
+
+-- like 'ok', but for CBool
+ok' :: IO a -> CBool -> IO a
+ok' a = \case
+  1 -> a
+  0 -> wsagetlasterror >>= \case
+        Pending -> a
+        e -> throwsk e
+  x -> error $ "ok': CBool returned something other than 1 or 0" ++ show x
+
+-- | accept a connection from the listening socket; set up accepting socket
+acceptex :: VTABLE -> SOCKET -> SOCKET -> LPOVERLAPPED -> IO ()
+acceptex vt lis acc ol =
+  let ax = vt_acceptex $ castPtrToFunPtr vt.sx_acceptex
+      sz = fromIntegral @Int @DWORD $ 16 + #{size SOCKADDR_IN}
+   in allocaBytes (3 * fromIntegral sz) \o ->
+      alloca \b ->
+      ax lis acc o 0 sz sz b ol >>= ok' do pure ()
+
+type ConnectEx = SOCKET -> Ptr SockAddr -> CInt -> LPVOID ->
+                 DWORD -> LPDWORD -> LPOVERLAPPED -> IO CBool
+
+foreign import ccall "dynamic"
+  vt_connectex :: FunPtr ConnectEx -> ConnectEx
+
+-- | given a bound socket, connect to a server
+connectex :: VTABLE -> SOCKET -> Ptr SockAddr -> Int -> LPOVERLAPPED -> IO ()
+connectex vt s a al ol =
+  let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
+   in cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok' do pure ()
+
+foreign import capi "winsock2.h WSARecv"
+  wsarecv :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> LPDWORD ->
+             LPOVERLAPPED -> LPVOID -> IO CInt
+
+-- | structure identical to WSABUF from \<ws2def.h\>
+data WSABUF = WSABUF
+  { wb_len :: ULONG
+  , wb_buf :: Ptr CChar
+  }
+
+instance Storable WSABUF where
+  sizeOf _ = #{size WSABUF}
+  alignment _ = #{alignment WSABUF}
+  peek p = liftA2 WSABUF
+    do #{peek WSABUF, len} p
+    do #{peek WSABUF, buf} p
+  poke p (WSABUF l b) = do
+    #{poke WSABUF, len} p l
+    #{poke WSABUF, buf} p b
+
+-- | a pointer to 'WSABUF'
+type LPWSABUF = Ptr WSABUF
+
+-- | receive into a buffer. see: 'recvmany', 'send'
+recv :: SOCKET -> WSABUF -> LPOVERLAPPED -> IO ()
+recv s b o =
+  alloca \u -> do
+    poke u b
+    alloca \flags -> do
+      poke flags 0
+      -- 1. expects an array of buffers. here we give a length of 1.
+      -- array is copied before wsarecv returns.
+      -- 2. since lpCompletionRoutine is NULL, *lpOverlapped
+      -- will be signaled once this routine completes.
+      wsarecv s u 1 nullPtr flags o nullPtr >>= ok do pure ()
+
+-- | receive multiple buffers. see: 'recv', 'sendmany'
+recvmany :: SOCKET -> [WSABUF] -> LPOVERLAPPED -> IO ()
+recvmany _ [] _ = pure ()
+recvmany s bs o =
+  withArrayLen bs \(fromIntegral -> lu) u ->
+    alloca \flags -> do
+      poke flags 0
+      wsarecv s u lu nullPtr flags o nullPtr >>= ok do pure ()
+
+foreign import capi "winsock2.h WSASend"
+  wsasend :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> DWORD ->
+             LPOVERLAPPED -> LPVOID -> IO CInt
+
+-- | send a buffer. see: 'sendmany', 'recv'
+send :: SOCKET -> WSABUF -> LPOVERLAPPED -> IO ()
+send s b o =
+  alloca \u -> do
+    poke u b
+    wsasend s u 1 nullPtr 0 o nullPtr >>= ok do pure ()
+
+-- | send multiple buffers. see: 'send', 'recvmany'
+sendmany :: SOCKET -> [WSABUF] -> LPOVERLAPPED -> IO ()
+sendmany _ [] _ = pure ()
+sendmany s bs o =
+  withArrayLen bs \(fromIntegral -> lu) u ->
+  wsasend s u lu nullPtr 0 o nullPtr >>= ok do pure ()
