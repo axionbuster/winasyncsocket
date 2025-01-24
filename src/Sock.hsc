@@ -11,15 +11,13 @@ programming on Windows platforms.
 module Sock 
   ( -- * Types
     SOCKET
-  , SocketEx
+  , VTABLE(..)
   , AddrFamily(..)
   , SocketType(..)
   , Protocol(..)
   , AddrInfo
   , SocketError(..)
   , ShutdownHow(..)
-  , LPWSAOVERLAPPED
-  , LPWSAOVERLAPPED_COMPLETION_ROUTINE
     -- * Type Patterns
   , pattern AF_INET
   , pattern AF_INET6
@@ -40,7 +38,7 @@ module Sock
   , bind
   , listen
   , getaddrinfo
-  , loadax
+  , loadvt
   , shutdown
   , closesocket
   ) where
@@ -64,6 +62,8 @@ import System.Win32.Types
 #include <windows.h>
 #include <ws2tcpip.h>
 #include <mswsock.h>
+
+#include "ax.h"
 
 -- | raw socket error as returned by WSAGetLastError()
 newtype SocketError = SocketError CInt
@@ -250,27 +250,22 @@ foreign import capi unsafe "winsock2.h listen"
 listen :: SOCKET -> IO ()
 listen s = c_listen s 0 >>= ok (pure ())
 
--- | 'SOCKET' but with some function pointers attached
-data SocketEx = SocketEx
-  { sx_socket :: SOCKET
-  , sx_acceptex :: AcceptEx
+-- | a virtual table for socket extensions
+data VTABLE = VTABLE
+  { sx_acceptex :: LPVOID
+  , sx_connectex :: LPVOID
+  , sx_disconnectex :: LPVOID
+  , sx_getacceptexsockaddrs :: LPVOID
+  , sx_transmitfile :: LPVOID
+  , sx_transmitpackets :: LPVOID
+  , sx_wsarecvmsg :: LPVOID
+  , sx_wsasendmsg :: LPVOID
   }
 
--- | a pointer to @OVERLAPPED@
-type LPWSAOVERLAPPED = LPOVERLAPPED
-
--- | a function pointer to be called in when overlapped I/O completes
-type LPWSAOVERLAPPED_COMPLETION_ROUTINE =
-  FunPtr (DWORD -> DWORD -> LPWSAOVERLAPPED -> DWORD -> IO ())
-
-type AcceptEx =
-  FunPtr (SOCKET -> SOCKET -> LPVOID -> DWORD -> DWORD ->
-          DWORD -> LPDWORD -> LPOVERLAPPED -> IO CBool)
-
 foreign import capi unsafe "winsock2.h WSAIoctl"
-  wsaioctl :: SOCKET -> DWORD -> LPVOID -> DWORD -> LPVOID ->
-              DWORD -> LPDWORD -> LPWSAOVERLAPPED ->
-              LPWSAOVERLAPPED_COMPLETION_ROUTINE -> IO CInt
+  wsaioctl :: SOCKET -> DWORD -> LPVOID -> DWORD -> Ptr LPVOID ->
+              DWORD -> LPDWORD -> LPVOID ->
+              LPVOID -> IO CInt
 
 data GUID = GUID
   { guid_Data1 :: #{type DWORD}  -- 4 bytes
@@ -293,27 +288,50 @@ instance Storable GUID where
     #{poke GUID, Data3} p d3
     pokeArray (#{ptr GUID, Data4} p) d4
 
-foreign import capi "ax.h hs_getwsaidacceptex"
-  hs_getwsaidacceptex :: Ptr GUID -> IO ()
+newtype HSGUIDENUM = HSGUIDENUM { ungenum :: CInt }
 
--- | load the @AcceptEx@ function.
-loadax :: SOCKET -> LPOVERLAPPED ->
-          LPWSAOVERLAPPED_COMPLETION_ROUTINE -> IO SocketEx
-loadax s o k =
-  alloca \gu -> do
-    hs_getwsaidacceptex gu
-    alloca \outsizptr ->
-      allocaBytes #{size LPVOID} \ax ->
-        wsaioctl
-          s
-          #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
-          do castPtr gu
-          #{size GUID}
-          ax
-          #{size LPVOID}
-          outsizptr
-          o
-          k >>= ok (SocketEx s <$> peek (castPtr ax))
+#{enum HSGUIDENUM, HSGUIDENUM, HS_ACCEPTEX, HS_CONNECTEX,
+  HS_DISCONNECTEX, HS_GETACCEPTEXSOCKADDRS, HS_TRANSMITFILE,
+  HS_TRANSMITPACKETS, HS_WSARECVMSG, HS_WSASENDMSG}
+
+foreign import capi "ax.h hs_getguid"
+  -- this is a highly unsafe function: it invokes undefined behavior
+  -- of the HSGUIDENUM is not one of the constants above.
+  hs_getguid :: Ptr GUID -> HSGUIDENUM -> IO ()
+
+-- load a dynamically loaded function
+loadfunc :: SOCKET -> Ptr LPVOID -> Ptr GUID -> IO ()
+loadfunc s f g =
+  alloca \outsizptr ->
+  wsaioctl
+    s
+    #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
+    do castPtr g
+    #{size GUID}
+    f
+    #{size LPVOID}
+    outsizptr
+    nullPtr
+    nullPtr
+    >>= ok do pure ()
+
+-- | load the socket extension functions
+loadvt :: SOCKET -> IO VTABLE
+loadvt s = do
+  let l h = alloca \g -> do
+        hs_getguid g h
+        alloca \pp -> do
+          loadfunc s pp g
+          peek pp
+  VTABLE
+    <$> l hsAcceptex
+    <*> l hsConnectex
+    <*> l hsDisconnectex
+    <*> l hsGetacceptexsockaddrs
+    <*> l hsTransmitfile
+    <*> l hsTransmitpackets
+    <*> l hsWsarecvmsg
+    <*> l hsWsasendmsg
 
 -- | what gets disabled when a socket is 'shutdown'
 newtype ShutdownHow = ShutdownHow CInt
