@@ -11,11 +11,16 @@ programming on Windows platforms.
 module Sock 
   ( -- * Types
     SOCKET
+  , SocketEx
   , AddrFamily(..)
   , SocketType(..)
   , Protocol(..)
   , AddrInfo
   , SocketError(..)
+  , ShutdownHow(..)
+  , WSAOVERLAPPED(..)
+  , LPWSAOVERLAPPED
+  , LPWSAOVERLAPPED_COMPLETION_ROUTINE
     -- * Type Patterns
   , pattern AF_INET
   , pattern AF_INET6
@@ -26,13 +31,22 @@ module Sock
   , pattern WouldBlock
   , pattern NotSupported
   , pattern INVALID_SOCKET
+  , pattern SOCKET_ERROR
+  , pattern SD_RECEIVE
+  , pattern SD_SEND
+  , pattern SD_BOTH
     -- * Functions
   , startup
   , socket
   , bind
   , listen
   , getaddrinfo
+  , loadax
+  , shutdown
+  , closesocket
   ) where
+
+-- frustratingly, formatter 'ormolu' doesn't work.
 
 import Control.Exception
 import Control.Monad
@@ -45,22 +59,12 @@ import Foreign.ForeignPtr.Unsafe
 import GHC.Event.Windows
 import System.Win32.Types
 
--- yeah, they have slightly different contents, but we need both
-
+-- i don't know if there's any way to fix the inclusion order warning:
+--  #warning Please include winsock2.h before windows.h
 #include <winsock2.h>
-#include <winsock.h>
+#include <windows.h>
 #include <ws2tcpip.h>
 #include <mswsock.h>
-
-##ifdef mingw32_HOST_OS
-## if defined(i386_HOST_ARCH)
-##  define WINCALL stdcall
-## elif defined(x86_64_HOST_ARCH)
-##  define WINCALL ccall
-## else
-##  error Unknown mingw32 arch
-## endif
-##endif
 
 -- | raw socket error as returned by WSAGetLastError()
 newtype SocketError = SocketError CInt
@@ -97,7 +101,7 @@ pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 data WSADATA
 type LPWSADATA = Ptr WSADATA
 
-foreign import WINCALL "WSAStartup"
+foreign import capi "winsock2.h WSAStartup"
   wsastartup :: WORD -> LPWSADATA -> IO SocketError
 
 -- | start up Windows Sockets v2.2. check version for 2.2.
@@ -148,15 +152,15 @@ instance Storable ADDRINFOW where
 newtype AddrInfo = AddrInfo (ForeignPtr ADDRINFOW)
   deriving (Eq, Show)
 
-foreign import WINCALL "GetAddrInfoW"
+foreign import capi "ws2tcpip.h GetAddrInfoW"
   -- 3rd [in] pointer is marked "const": "const ADDRINFOW *"
   getaddrinfow :: LPCWSTR -> LPCWSTR -> Ptr ADDRINFOW -> Ptr (Ptr ADDRINFOW)
                   -> IO CInt
 
-foreign import WINCALL "&FreeAddrInfoW"
+foreign import capi "ws2tcpip.h &FreeAddrInfoW"
   freeaddrinfow :: FinalizerPtr ADDRINFOW
 
-foreign import WINCALL "WSAGetLastError"
+foreign import capi "winsock2.h WSAGetLastError"
   wsagetlasterror :: IO SocketError
 
 ok :: IO a -> CInt -> IO a
@@ -184,7 +188,7 @@ type GROUP = #{type GROUP}
 
 data WSAPROTOCOL_INFOW
 
-foreign import WINCALL unsafe "WSASocketW"
+foreign import capi unsafe "winsock2.h WSASocketW"
   wsasocketw :: CInt -> CInt -> CInt -> Ptr (WSAPROTOCOL_INFOW)
                -> GROUP -> DWORD -> IO SOCKET
 
@@ -194,6 +198,10 @@ newtype AddrFamily = AddrFamily { unaddrfamily :: CInt }
 pattern AF_INET :: AddrFamily
 pattern AF_INET = AddrFamily #{const AF_INET}
 
+-- | on Windows Vista and later, AF_INET6 works in dual-mode IPv4 and IPv6.
+-- it can communicate with both types of addresses. IPv4 addresses get mapped
+-- to IPv6 addresses, using a compatibility encoding. it does not mean
+-- that the protocol gets updated, though
 pattern AF_INET6 :: AddrFamily
 pattern AF_INET6 = AddrFamily #{const AF_INET6}
 
@@ -223,7 +231,7 @@ socket af ty proto =
 -- not opaque, but is highly complicated
 data SockAddr
 
-foreign import WINCALL unsafe "bind"
+foreign import capi unsafe "winsock2.h bind"
   c_bind :: SOCKET -> Ptr SockAddr -> CInt -> IO CInt
 
 -- | bind a socket to an address
@@ -233,7 +241,7 @@ bind s (AddrInfo ai) =
     sa <- #{peek ADDRINFOW, ai_addr} pai
     c_bind s sa #{size struct sockaddr} >>= ok (pure ())
 
-foreign import WINCALL unsafe "listen"
+foreign import capi unsafe "winsock2.h listen"
   c_listen :: SOCKET -> CInt -> IO CInt
 
 -- | allow a bound socket to listen for connections (TCP)
@@ -246,10 +254,40 @@ data SocketEx = SocketEx
   , sx_acceptex :: AcceptEx
   }
 
-data WSAOVERLAPPED
+-- | compatible with the @OVERLAPPED@ structure, communicate overlapped I/O status
+--
+-- https://learn.microsoft.com/en-us/windows/win32/api/winsock2/ns-winsock2-wsaoverlapped
+data WSAOVERLAPPED = WSAOVERLAPPED
+  { wsaov_Internal :: DWORD
+  , wsaov_InternalHigh :: DWORD
+  , wsaov_Offset :: DWORD
+  , wsaov_OffsetHigh :: DWORD
+  -- | nullable. if overlapped I/O operation is issued without an I/O
+  -- completion routine, to contain either a valid handle or null.
+  -- paraphrased from Microsoft's documentation.
+  , wsaov_hEvent :: HANDLE
+  } deriving (Eq, Show)
 
+instance Storable WSAOVERLAPPED where
+  sizeOf _ = #{size WSAOVERLAPPED}
+  alignment _ = #{alignment WSAOVERLAPPED}
+  peek p = WSAOVERLAPPED
+    <$> #{peek WSAOVERLAPPED, Internal} p
+    <*> #{peek WSAOVERLAPPED, InternalHigh} p
+    <*> #{peek WSAOVERLAPPED, Offset} p
+    <*> #{peek WSAOVERLAPPED, OffsetHigh} p
+    <*> #{peek WSAOVERLAPPED, hEvent} p
+  poke p (WSAOVERLAPPED i ih o oh h) = do
+    #{poke WSAOVERLAPPED, Internal} p i
+    #{poke WSAOVERLAPPED, InternalHigh} p ih
+    #{poke WSAOVERLAPPED, Offset} p o
+    #{poke WSAOVERLAPPED, OffsetHigh} p oh
+    #{poke WSAOVERLAPPED, hEvent} p h
+
+-- | a pointer to 'WSAOVERLAPPED'
 type LPWSAOVERLAPPED = Ptr WSAOVERLAPPED
 
+-- | a function pointer to be called in when overlapped I/O completes
 type LPWSAOVERLAPPED_COMPLETION_ROUTINE =
   FunPtr (DWORD -> DWORD -> LPWSAOVERLAPPED -> DWORD -> IO ())
 
@@ -257,25 +295,82 @@ type AcceptEx =
   FunPtr (SOCKET -> SOCKET -> LPVOID -> DWORD -> DWORD ->
           DWORD -> LPDWORD -> LPOVERLAPPED -> IO CBool)
 
-foreign import WINCALL unsafe "WSAIoctl"
+foreign import capi unsafe "winsock2.h WSAIoctl"
   wsaioctl :: SOCKET -> DWORD -> LPVOID -> DWORD -> LPVOID ->
               DWORD -> LPDWORD -> LPWSAOVERLAPPED ->
               LPWSAOVERLAPPED_COMPLETION_ROUTINE -> IO CInt
 
+data GUID = GUID
+  { guid_Data1 :: #{type DWORD}  -- 4 bytes
+  , guid_Data2 :: #{type WORD}   -- 2 bytes
+  , guid_Data3 :: #{type WORD}   -- 2 bytes
+  , guid_Data4 :: [#{type BYTE}] -- 8 bytes
+  } deriving (Show, Eq)
+
+instance Storable GUID where
+  sizeOf _ = #{size GUID}
+  alignment _ = #{alignment GUID}
+  peek p = GUID
+    <$> #{peek GUID, Data1} p
+    <*> #{peek GUID, Data2} p
+    <*> #{peek GUID, Data3} p
+    <*> peekArray 8 (#{ptr GUID, Data4} p)
+  poke p (GUID d1 d2 d3 d4) = do
+    #{poke GUID, Data1} p d1
+    #{poke GUID, Data2} p d2
+    #{poke GUID, Data3} p d3
+    pokeArray (#{ptr GUID, Data4} p) d4
+
+foreign import capi "ax.h hs_getwsaidacceptex"
+  hs_getwsaidacceptex :: Ptr GUID -> IO ()
+
+-- | load the @AcceptEx@ function.
 loadax :: SOCKET -> WSAOVERLAPPED ->
           LPWSAOVERLAPPED_COMPLETION_ROUTINE -> IO SocketEx
 loadax s o k =
-  alloca \outsizptr ->
-  alloca \guid -> do
-    poke guid #{const WSAID_ACCEPTEX}
-    allocaBytes #{size LPVOID} \ax ->
-      wsaioctl
-        s
-        #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
-        guid
-        #{size GUID}
-        ax
-        #{size LPVOID}
-        outsizptr
-        o
-        k >>= ok (SocketEx s <$> peek ax)
+  alloca \oo -> do
+    poke oo o
+    alloca \gu -> do
+      hs_getwsaidacceptex gu
+      alloca \outsizptr ->
+        allocaBytes #{size LPVOID} \ax ->
+          wsaioctl
+            s
+            #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
+            do castPtr gu
+            #{size GUID}
+            ax
+            #{size LPVOID}
+            outsizptr
+            oo
+            k >>= ok (SocketEx s <$> peek (castPtr ax))
+
+-- | what gets disabled when a socket is 'shutdown'
+newtype ShutdownHow = ShutdownHow CInt
+
+pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
+pattern SD_RECEIVE = ShutdownHow #{const SD_RECEIVE}
+pattern SD_SEND = ShutdownHow #{const SD_SEND}
+pattern SD_BOTH = ShutdownHow #{const SD_BOTH}
+
+foreign import capi "winsock2.h shutdown"
+  c_shutdown :: SOCKET -> ShutdownHow -> IO CInt
+
+-- | disable reception, transmission, or both. see also: 'closesocket'.
+--
+-- this does not close the socket.
+shutdown :: SOCKET -> ShutdownHow -> IO ()
+shutdown s h = c_shutdown s h >>= ok do pure ()
+
+foreign import capi "winsock2.h closesocket"
+  c_closesocket :: SOCKET -> IO CInt
+
+-- | close a socket
+--
+-- warnings from Microsoft (not all):
+--
+-- - depending on the linger structure, may or may not block.
+-- - cannot assume all I/O operations will be ended when it returns.
+-- - system may immediately reuse socket number.
+closesocket :: SOCKET -> IO ()
+closesocket = c_closesocket >=> ok do pure ()

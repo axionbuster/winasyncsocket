@@ -10,6 +10,7 @@ language: GHC2021
 
 default-extensions:
 - BlockArguments
+- CApiFFI
 - CPP
 - LambdaCase
 - PatternSynonyms
@@ -46,6 +47,9 @@ ghc-options:
 
 library:
   source-dirs: src
+  c-sources:
+  - src/ax.c
+  include-dirs: src
   build-tools: hsc2hs
 
 executables:
