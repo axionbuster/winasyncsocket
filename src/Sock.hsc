@@ -18,7 +18,6 @@ module Sock
   , AddrInfo
   , SocketError(..)
   , ShutdownHow(..)
-  , WSAOVERLAPPED(..)
   , LPWSAOVERLAPPED
   , LPWSAOVERLAPPED_COMPLETION_ROUTINE
     -- * Type Patterns
@@ -82,6 +81,9 @@ pattern WouldBlock = SocketError #{const WSAEWOULDBLOCK}
 
 pattern NotSupported :: SocketError
 pattern NotSupported = SocketError #{const WSAVERNOTSUPPORTED}
+
+pattern ConnectionReset :: SocketError 
+pattern ConnectionReset = SocketError #{const WSAECONNRESET}
 
 throwsk :: SocketError -> IO a
 throwsk = throwIO
@@ -254,38 +256,8 @@ data SocketEx = SocketEx
   , sx_acceptex :: AcceptEx
   }
 
--- | compatible with the @OVERLAPPED@ structure, communicate overlapped I/O status
---
--- https://learn.microsoft.com/en-us/windows/win32/api/winsock2/ns-winsock2-wsaoverlapped
-data WSAOVERLAPPED = WSAOVERLAPPED
-  { wsaov_Internal :: DWORD
-  , wsaov_InternalHigh :: DWORD
-  , wsaov_Offset :: DWORD
-  , wsaov_OffsetHigh :: DWORD
-  -- | nullable. if overlapped I/O operation is issued without an I/O
-  -- completion routine, to contain either a valid handle or null.
-  -- paraphrased from Microsoft's documentation.
-  , wsaov_hEvent :: HANDLE
-  } deriving (Eq, Show)
-
-instance Storable WSAOVERLAPPED where
-  sizeOf _ = #{size WSAOVERLAPPED}
-  alignment _ = #{alignment WSAOVERLAPPED}
-  peek p = WSAOVERLAPPED
-    <$> #{peek WSAOVERLAPPED, Internal} p
-    <*> #{peek WSAOVERLAPPED, InternalHigh} p
-    <*> #{peek WSAOVERLAPPED, Offset} p
-    <*> #{peek WSAOVERLAPPED, OffsetHigh} p
-    <*> #{peek WSAOVERLAPPED, hEvent} p
-  poke p (WSAOVERLAPPED i ih o oh h) = do
-    #{poke WSAOVERLAPPED, Internal} p i
-    #{poke WSAOVERLAPPED, InternalHigh} p ih
-    #{poke WSAOVERLAPPED, Offset} p o
-    #{poke WSAOVERLAPPED, OffsetHigh} p oh
-    #{poke WSAOVERLAPPED, hEvent} p h
-
--- | a pointer to 'WSAOVERLAPPED'
-type LPWSAOVERLAPPED = Ptr WSAOVERLAPPED
+-- | a pointer to @OVERLAPPED@
+type LPWSAOVERLAPPED = LPOVERLAPPED
 
 -- | a function pointer to be called in when overlapped I/O completes
 type LPWSAOVERLAPPED_COMPLETION_ROUTINE =
@@ -325,25 +297,23 @@ foreign import capi "ax.h hs_getwsaidacceptex"
   hs_getwsaidacceptex :: Ptr GUID -> IO ()
 
 -- | load the @AcceptEx@ function.
-loadax :: SOCKET -> WSAOVERLAPPED ->
+loadax :: SOCKET -> LPOVERLAPPED ->
           LPWSAOVERLAPPED_COMPLETION_ROUTINE -> IO SocketEx
 loadax s o k =
-  alloca \oo -> do
-    poke oo o
-    alloca \gu -> do
-      hs_getwsaidacceptex gu
-      alloca \outsizptr ->
-        allocaBytes #{size LPVOID} \ax ->
-          wsaioctl
-            s
-            #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
-            do castPtr gu
-            #{size GUID}
-            ax
-            #{size LPVOID}
-            outsizptr
-            oo
-            k >>= ok (SocketEx s <$> peek (castPtr ax))
+  alloca \gu -> do
+    hs_getwsaidacceptex gu
+    alloca \outsizptr ->
+      allocaBytes #{size LPVOID} \ax ->
+        wsaioctl
+          s
+          #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
+          do castPtr gu
+          #{size GUID}
+          ax
+          #{size LPVOID}
+          outsizptr
+          o
+          k >>= ok (SocketEx s <$> peek (castPtr ax))
 
 -- | what gets disabled when a socket is 'shutdown'
 newtype ShutdownHow = ShutdownHow CInt
