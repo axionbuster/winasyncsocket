@@ -8,16 +8,20 @@ This module provides low-level bindings to the Windows Sockets 2 API (Winsock2).
 It includes socket operations, constants, and data structures needed for network
 programming on Windows platforms.
 
-Portions of this code are interpreted from Tamar Christina.
+Portions of this code are interpreted from Tamar Christina's code.
+
+Unicode operations are used wherever possible.
 -}
-module Sock 
+module Sock
   ( -- * Types
     SOCKET
   , VTABLE(..)
   , AddrFamily(..)
   , SocketType(..)
   , Protocol(..)
-  , AddrInfo
+  , ADDRINFOW(..)
+  , SockAddr
+  , AddrInfo(..)
   , SocketError(..)
   , ShutdownHow(..)
   , WSABUF(..)
@@ -48,7 +52,9 @@ module Sock
   , shutdown
   , closesocket
   , acceptex
+  , sockaddr
   , connectex
+  , connectex'
   , recv
   , recvmany
   , send
@@ -59,17 +65,26 @@ module Sock
 
 import Control.Exception
 import Control.Monad
-import Data.Either
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
-import Foreign.Ptr
-import Foreign.ForeignPtr.Unsafe
 import GHC.Event.Windows
 import System.Win32.Types
 
--- i don't know if there's any way to fix the inclusion order warning:
---  #warning Please include winsock2.h before windows.h
+-- oh, did you know, there are two distinct Unicode-enabling macros
+-- that do slightly different things? the recommendation is always enable
+-- both when either one is enabled.
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
+#define WIN32_LEAN_AND_MEAN
+
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
@@ -85,24 +100,32 @@ instance Exception SocketError where
   -- terrible, but works for now...
   displayException (SocketError s) = "Socket error: " ++ show s
 
+-- | no error
 pattern Success :: SocketError
 pattern Success = SocketError 0
 
+-- | operation is not permitted because it would block
 pattern WouldBlock :: SocketError
 pattern WouldBlock = SocketError #{const WSAEWOULDBLOCK}
 
+-- | operation is not supported
 pattern NotSupported :: SocketError
 pattern NotSupported = SocketError #{const WSAVERNOTSUPPORTED}
 
+-- | connection has been reset
 pattern ConnectionReset :: SocketError 
 pattern ConnectionReset = SocketError #{const WSAECONNRESET}
 
+-- | not an error; operation will complete in the background
 pattern Pending :: SocketError
 pattern Pending = SocketError #{const ERROR_IO_PENDING}
 
 throwsk :: SocketError -> IO a
 throwsk = throwIO
 
+-- | there is a socket error to be inspected using a call to WSAGetLastError().
+-- note: all exported functions already call WSAGetLastError to report the
+-- actual error code, so user code should not expect to get this error
 pattern SOCKET_ERROR :: CInt
 pattern SOCKET_ERROR = #{const SOCKET_ERROR}
 
@@ -110,6 +133,7 @@ pattern SOCKET_ERROR = #{const SOCKET_ERROR}
 newtype SOCKET = SOCKET { unsocket :: WordPtr }
   deriving (Eq, Show, Storable)
 
+-- | a placeholder socket number
 pattern INVALID_SOCKET :: SOCKET
 pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 
@@ -132,6 +156,7 @@ startup =
       pure ()
     e -> throwsk e
 
+-- | the @ADDRINFOW@ structure from \<ws2def.h\>
 data ADDRINFOW = ADDRINFOW
   { ai_flags :: CInt
   , ai_family :: CInt
@@ -139,7 +164,7 @@ data ADDRINFOW = ADDRINFOW
   , ai_protocol :: CInt
   , ai_addrlen :: CSize
   , ai_canonname :: LPWSTR
-  , ai_addr :: Ptr ()
+  , ai_addr :: Ptr SockAddr
   , ai_next :: Ptr ADDRINFOW
   } deriving (Eq, Show)
 
@@ -166,6 +191,8 @@ instance Storable ADDRINFOW where
     #{poke ADDRINFOW, ai_addr} p addr
     #{poke ADDRINFOW, ai_next} p next
 
+-- | a 'ForeignPtr' wrapper over 'ADDRINFOW'. it frees the 'ADDRINFOW' using
+-- the correct function
 newtype AddrInfo = AddrInfo (ForeignPtr ADDRINFOW)
   deriving (Eq, Show)
 
@@ -180,6 +207,7 @@ foreign import capi "ws2tcpip.h &FreeAddrInfoW"
 foreign import capi "winsock2.h WSAGetLastError"
   wsagetlasterror :: IO SocketError
 
+-- if 0, go. otherwise, throw a socket error.
 ok :: IO a -> CInt -> IO a
 ok a 0 = a
 ok a _ = wsagetlasterror >>= \case
@@ -211,9 +239,11 @@ foreign import capi unsafe "winsock2.h WSASocketW"
   wsasocketw :: CInt -> CInt -> CInt -> Ptr (WSAPROTOCOL_INFOW)
                -> GROUP -> DWORD -> IO SOCKET
 
+-- | address family. prefix: @AF_@
 newtype AddrFamily = AddrFamily { unaddrfamily :: CInt }
   deriving (Show, Eq)
 
+-- | Internet Protocol (IP) version 4
 pattern AF_INET :: AddrFamily
 pattern AF_INET = AddrFamily #{const AF_INET}
 
@@ -224,16 +254,21 @@ pattern AF_INET = AddrFamily #{const AF_INET}
 pattern AF_INET6 :: AddrFamily
 pattern AF_INET6 = AddrFamily #{const AF_INET6}
 
+-- | socket type. prefix: @SOCK_@
 newtype SocketType = SocketType { unsockettype :: CInt }
   deriving (Show, Eq)
 
+-- | reliable byte stream; TCP
 pattern SOCK_STREAM :: SocketType
 pattern SOCK_STREAM = SocketType #{const SOCK_STREAM}
 
+-- | protocol type. prefix: @IPPROTO_@
 newtype Protocol = Protocol { unprotocol :: CInt }
 
 pattern IPPROTO_TCP, IPPROTO_UDP :: Protocol
+-- | TCP
 pattern IPPROTO_TCP = Protocol #{const IPPROTO_TCP}
+-- | UDP
 pattern IPPROTO_UDP = Protocol #{const IPPROTO_UDP}
 
 -- | open an overlapping (non-blocking) socket
@@ -247,7 +282,7 @@ socket af ty proto =
         INVALID_SOCKET -> wsagetlasterror >>= throwsk
         s -> pure s
 
--- not opaque, but is highly complicated
+-- | a socket address (opaque)
 data SockAddr
 
 foreign import capi unsafe "winsock2.h bind"
@@ -305,7 +340,7 @@ instance Storable GUID where
     #{poke GUID, Data3} p d3
     pokeArray (#{ptr GUID, Data4} p) d4
 
-newtype HSGUIDENUM = HSGUIDENUM { ungenum :: CInt }
+newtype HSGUIDENUM = HSGUIDENUM CInt
 
 #{enum HSGUIDENUM, HSGUIDENUM, HS_ACCEPTEX, HS_CONNECTEX,
   HS_DISCONNECTEX, HS_GETACCEPTEXSOCKADDRS, HS_TRANSMITFILE,
@@ -350,12 +385,15 @@ loadvt s = do
     <*> l hsWsarecvmsg
     <*> l hsWsasendmsg
 
--- | what gets disabled when a socket is 'shutdown'
+-- | what gets disabled when a socket is 'shutdown'. prefix is @SD_@
 newtype ShutdownHow = ShutdownHow CInt
 
 pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
+-- | disable 'recv'
 pattern SD_RECEIVE = ShutdownHow #{const SD_RECEIVE}
+-- | disable 'send'
 pattern SD_SEND = ShutdownHow #{const SD_SEND}
+-- | disable both 'recv' and 'send'
 pattern SD_BOTH = ShutdownHow #{const SD_BOTH}
 
 foreign import capi "winsock2.h shutdown"
@@ -405,6 +443,12 @@ acceptex vt lis acc ol =
       alloca \b ->
       ax lis acc o 0 sz sz b ol >>= ok' do pure ()
 
+-- | get the socket address for use with 'connectex'
+sockaddr :: AddrInfo -> IO (Ptr SockAddr)
+sockaddr (AddrInfo ai) =
+  withForeignPtr ai \a ->
+  ai_addr <$> peek a
+
 type ConnectEx = SOCKET -> Ptr SockAddr -> CInt -> LPVOID ->
                  DWORD -> LPDWORD -> LPOVERLAPPED -> IO CBool
 
@@ -417,11 +461,16 @@ connectex vt s a al ol =
   let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
    in cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok' do pure ()
 
+-- | run 'connectex' on an 'AddrInfo' using 'sockaddr' to extract the
+-- @'Ptr' 'SockAddr'@
+connectex' :: VTABLE -> SOCKET -> AddrInfo -> Int -> LPOVERLAPPED -> IO ()
+connectex' vt s a al ol = sockaddr a >>= \b -> connectex vt s b al ol
+
 foreign import capi "winsock2.h WSARecv"
   wsarecv :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> LPDWORD ->
              LPOVERLAPPED -> LPVOID -> IO CInt
 
--- | structure identical to WSABUF from \<ws2def.h\>
+-- | structure identical to @WSABUF@ from \<ws2def.h\>
 data WSABUF = WSABUF
   { wb_len :: ULONG
   , wb_buf :: Ptr CChar

@@ -4,6 +4,8 @@
 #ifndef AX_H
 #define AX_H
 
+#include "prepwin.h"
+
 #include <guiddef.h>
 
 // what function is to be fetched

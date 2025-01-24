@@ -1,6 +1,8 @@
 // ax.c -- BSD-3-Clause
 // Copyright (C) axionbuster 2025
 
+#include "prepwin.h"
+
 #include <guiddef.h>
 #include <mswsock.h>
 
