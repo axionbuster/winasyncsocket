@@ -15,6 +15,7 @@ Unicode operations are used wherever possible.
 module Sock
   ( -- * Types
     SOCKET
+  , Socket
   , VTABLE(..)
   , AddrFamily(..)
   , SocketType(..)
@@ -59,16 +60,22 @@ module Sock
   , recvmany
   , send
   , sendmany
+  -- * Managed sockets
+  , sksk
+  , managesocket
+  , close
   ) where
 
 -- frustratingly, formatter 'ormolu' doesn't work.
 
 import Control.Exception
 import Control.Monad
+import Data.IORef
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
 import GHC.Event.Windows
+import System.Mem.Weak
 import System.Win32.Types
 
 -- oh, did you know, there are two distinct Unicode-enabling macros
@@ -528,3 +535,29 @@ sendmany _ [] _ = pure ()
 sendmany s bs o =
   withArrayLen bs \(fromIntegral -> lu) u ->
   wsasend s u lu nullPtr 0 o nullPtr >>= ok do pure ()
+
+-- | a managed 'SOCKET'. see: 'managesocket', 'close'
+data Socket = Socket
+  { -- | extract the underlying 'SOCKET'
+    sksk :: SOCKET
+  , skok :: IORef Bool
+  }
+
+-- | manage a socket so it will be closed when it goes out of scope.
+-- uses 'closesocket' without 'shutdown'
+managesocket :: SOCKET -> IO Socket
+managesocket sksk = do
+  skok <- newIORef True
+  let sock = Socket {..}
+  addFinalizer sock do
+    readIORef skok >>= \case
+      True -> atomicWriteIORef skok False *> closesocket sksk
+      _ -> pure ()
+  pure sock
+
+-- | close a managed socket
+close :: Socket -> IO ()
+close (Socket s o) =
+  readIORef o >>= \case
+    True -> writeIORef o False *> closesocket s
+    _ -> pure ()
