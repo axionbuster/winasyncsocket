@@ -110,9 +110,9 @@ foreign import capi unsafe "winbase.h LocalFree"
   localfree :: LPVOID -> IO ()
 
 foreign import capi unsafe "winbase.h FormatMessageW"
-  -- the type of the 5th argument [out lpBuffer; LPTSTR*] depends on a flag in
+  -- the type of the 5th argument [out lpBuffer; LPWSTR*] depends on a flag in
   -- the 1st argument [in dwFlags; DWORD]: if it contains
-  -- FORMAT_MESSAGE_ALLOCATE_BUFFER, then lpBuffer has type LPTSTR *, and
+  -- FORMAT_MESSAGE_ALLOCATE_BUFFER, then lpBuffer has type LPWSTR *, and
   -- it will point to the OS-allocated string to be freed by using LocalFree.
   -- otherwise, lpBuffer has type LPTSTR, and we need to allocate it ourselves.
   formatmessagew :: DWORD -> LPVOID -> DWORD -> DWORD -> Ptr LPWSTR -> DWORD ->
