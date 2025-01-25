@@ -12,29 +12,31 @@ import TCPIP
 server :: IO ()
 server = do
   hPutStrLn stderr "Starting server on localhost:50123"
-  addr <- getaddrinfo "127.0.0.1" "50123"
+  addr <- getaddrinfo "::" "50123"
   bracket socket close \sock -> do
-    traceIO "point 1"
+    traceIO "binding socket to addr"
     bind sock addr
-    traceIO "point 2"
+    traceIO "listening on socket"
     listen sock
-    traceIO "point 3"
+    traceIO "now accepting clients..."
     forever $ bracket (accept sock) close \c -> do
-      hPutStrLn stderr "Client connected"
+      hPutStrLn stderr "client connected"
       forever do
         msg <- recv c 1024
-        when (C.null msg) $ error "Client disconnected"
+        when (C.null msg) $ error "client disconnected"
         sendall c msg
-        hPutStrLn stderr $ "Echoed: " ++ show msg
+        hPutStrLn stderr $ "echoed: " ++ show msg
 
 client :: IO ()
 client = do
-  hPutStrLn stderr "Connecting to localhost:50123"
-  addr <- getaddrinfo "127.0.0.1" "50123"
+  hPutStrLn stderr "connecting to localhost:50123"
+  addr <- getaddrinfo "::1" "50123"
   bracket socket close \sock -> do
+    traceIO "binding socket to addr"
     bind sock addr
+    traceIO "connecting to server"
     connect sock addr
-    hPutStrLn stderr "Connected. Type messages to send (Ctrl+C to exit)"
+    hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
     forever do
       line <- C.getLine
       sendall sock line
