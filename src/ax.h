@@ -26,4 +26,7 @@ enum HSGUIDENUM {
 // if not, undefined behavior will be invoked
 void hs_getguid(GUID *, enum HSGUIDENUM);
 
+// let 'a' accept the connection from 'l'
+int hs_finishaccept(SOCKET l, SOCKET a);
+
 #endif /* AX_H */

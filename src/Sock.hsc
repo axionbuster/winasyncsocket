@@ -71,11 +71,13 @@ module Sock
 
 import Control.Exception
 import Control.Monad
+import Data.Bits
 import Data.IORef
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
 import GHC.Event.Windows
+import System.IO.Unsafe
 import System.Mem.Weak
 import System.Win32.Types
 
@@ -104,9 +106,44 @@ import System.Win32.Types
 newtype SocketError = SocketError { getskerr :: CInt }
   deriving (Eq, Show, Storable)
 
+foreign import capi unsafe "winbase.h LocalFree"
+  localfree :: LPVOID -> IO ()
+
+foreign import capi unsafe "winbase.h FormatMessage"
+  -- the type of the 5th argument [out lpBuffer; LPTSTR*] depends on a flag in
+  -- the 1st argument [in dwFlags; DWORD]: if it contains
+  -- FORMAT_MESSAGE_ALLOCATE_BUFFER, then lpBuffer has type LPTSTR *, and
+  -- it will point to the OS-allocated string to be freed by using LocalFree.
+  -- otherwise, lpBuffer has type LPTSTR, and we need to allocate it ourselves.
+  formatmessage :: DWORD -> LPVOID -> DWORD -> DWORD -> Ptr LPTSTR -> DWORD ->
+                   LPVOID -> IO DWORD
+
+foreign import capi unsafe "winnt.h MAKELANGID"
+  makelangid :: DWORD -> DWORD -> DWORD
+
+-- | string fetched from the Windows API. yes, we make a /syscall/.
 instance Exception SocketError where
-  -- terrible, but works for now...
-  displayException (SocketError s) = "Socket error: " ++ show s
+  displayException (SocketError s) = "Socket error: " ++ show m
+    where
+      m = unsafeDupablePerformIO do
+        mask_ do
+          alloca \b ->
+            formatmessage
+              do #{const FORMAT_MESSAGE_ALLOCATE_BUFFER}
+                  .|. #{const FORMAT_MESSAGE_FROM_SYSTEM}
+              do nullPtr
+              do fromIntegral s
+              do makelangid #{const LANG_NEUTRAL} #{const SUBLANG_NEUTRAL}
+              do b
+              do 101 -- minimum buffer size; some random prime because why not.
+              do nullPtr -- va_list * [in, optional]
+              >>= \case
+                -- 0: failure, resort to showing number
+                0 -> pure $ "<Winsock2 error code " ++ show s ++ ">"
+                _ -> do
+                  o <- peek b >>= peekTString
+                  localfree (castPtr b)
+                  pure o
 
 -- | no error
 pattern Success :: SocketError

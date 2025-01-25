@@ -24,6 +24,8 @@ module TCPIP
     recvBuf,
     sendbuf,
     sendBuf,
+    sendall,
+    sendAll,
     recv,
     send,
     shutdown,
@@ -39,6 +41,7 @@ where
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as B
 import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Functor
@@ -192,7 +195,7 @@ sendBuf = sendbuf
 recv :: Socket -> Int -> IO ByteString
 recv s a = createAndTrim a \p -> recvbuf s p a
 
--- | attempt to send the bytestring and measure how many bytes were sent
+-- | attempt to send the 'ByteString' and measure how many bytes were sent
 send :: Socket -> ByteString -> IO Int
 send s a = unsafeUseAsCStringLen a $ uncurry $ sendbuf s
 
@@ -219,3 +222,9 @@ getaddrinfo node service = S.getaddrinfo node service $ Just do
           ai_socktype = S.unsockettype S.SOCK_STREAM,
           ai_protocol = S.unprotocol S.IPPROTO_TCP
         }
+
+-- | attempt to send all of the given 'ByteString'
+sendall, sendAll :: Socket -> ByteString -> IO ()
+sendall s b = send s b >>= \c -> when (c < B.length b) $ sendall s (B.drop c b)
+sendAll = sendall
+{-# INLINE sendAll #-}
