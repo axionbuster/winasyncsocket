@@ -73,6 +73,7 @@ import Control.Exception
 import Control.Monad
 import Data.Bits
 import Data.IORef
+import Data.List (unsnoc)
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
@@ -121,10 +122,15 @@ foreign import capi unsafe "winbase.h FormatMessageW"
 foreign import capi unsafe "winnt.h MAKELANGID"
   makelangid :: DWORD -> DWORD -> DWORD
 
--- | string fetched from the Windows API. yes, we make a /syscall/.
+-- | 'displayException': we make a /syscall/ to fetch the message
 instance Exception SocketError where
-  displayException (SocketError s) = "Socket error: " ++ m
+  displayException (SocketError s) = "Socket error: " ++ z m
     where
+      -- z: remove trailing newline
+      z r = case unsnoc r of
+        Nothing -> ""
+        Just (rr, '\n') -> rr
+        _ -> r
       m = unsafeDupablePerformIO do
         mask_ do
           alloca \b ->
@@ -186,8 +192,14 @@ pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 data WSADATA
 type LPWSADATA = Ptr WSADATA
 
-foreign import capi "winsock2.h WSAStartup"
+foreign import capi unsafe "winsock2.h WSAStartup"
   wsastartup :: WORD -> LPWSADATA -> IO SocketError
+
+foreign import capi unsafe "winsock2.h WSASetLastError"
+  wsasetlasterror :: SocketError -> IO ()
+
+foreign import capi unsafe "winsock2.h WSACleanup"
+  wsacleanup :: IO CInt
 
 -- | start up Windows Sockets v2.2. check version for 2.2.
 startup :: IO ()
@@ -196,7 +208,10 @@ startup =
   wsastartup 0x0202 d >>= \case
     Success -> do
       (w :: WORD) <- #{peek WSADATA, wVersion} d
-      unless (w == 0x0202) do throwsk NotSupported
+      unless (w == 0x0202) do
+        wsasetlasterror NotSupported
+        void wsacleanup -- we can't do anything about an error here
+        throwsk NotSupported
       pure ()
     e -> throwsk e
 
@@ -248,15 +263,15 @@ pattern ADDRINFOW0 = ADDRINFOW 0 0 0 0 0 NULL NULL NULL
 newtype AddrInfo = AddrInfo (ForeignPtr ADDRINFOW)
   deriving (Eq, Show)
 
-foreign import capi "ws2tcpip.h GetAddrInfoW"
+foreign import capi unsafe "ws2tcpip.h GetAddrInfoW"
   -- 3rd [in] pointer is marked "const": "const ADDRINFOW *"
   getaddrinfow :: LPCWSTR -> LPCWSTR -> Ptr ADDRINFOW -> Ptr (Ptr ADDRINFOW)
                   -> IO CInt
 
-foreign import capi "ws2tcpip.h &FreeAddrInfoW"
+foreign import capi unsafe "ws2tcpip.h &FreeAddrInfoW"
   freeaddrinfow :: FinalizerPtr ADDRINFOW
 
-foreign import capi "winsock2.h WSAGetLastError"
+foreign import capi unsafe "winsock2.h WSAGetLastError"
   wsagetlasterror :: IO SocketError
 
 -- if 0, go. otherwise, throw a socket error.
@@ -399,7 +414,7 @@ newtype HSGUIDENUM = HSGUIDENUM CInt
   HS_DISCONNECTEX, HS_GETACCEPTEXSOCKADDRS, HS_TRANSMITFILE,
   HS_TRANSMITPACKETS, HS_WSARECVMSG, HS_WSASENDMSG}
 
-foreign import capi "ax.h hs_getguid"
+foreign import capi unsafe "ax.h hs_getguid"
   -- this is a highly unsafe function: it invokes undefined behavior
   -- of the HSGUIDENUM is not one of the constants above.
   hs_getguid :: Ptr GUID -> HSGUIDENUM -> IO ()
@@ -450,7 +465,7 @@ pattern SD_SEND = ShutdownHow #{const SD_SEND}
 -- | disable both 'recv' and 'send'
 pattern SD_BOTH = ShutdownHow #{const SD_BOTH}
 
-foreign import capi "winsock2.h shutdown"
+foreign import capi unsafe "winsock2.h shutdown"
   c_shutdown :: SOCKET -> ShutdownHow -> IO CInt
 
 -- | disable reception, transmission, or both. see also: 'closesocket'.
@@ -459,7 +474,7 @@ foreign import capi "winsock2.h shutdown"
 shutdown :: SOCKET -> ShutdownHow -> IO ()
 shutdown s h = mask_ do c_shutdown s h >>= ok (pure ())
 
-foreign import capi "winsock2.h closesocket"
+foreign import capi unsafe "winsock2.h closesocket"
   c_closesocket :: SOCKET -> IO CInt
 
 -- | close a socket
@@ -498,7 +513,7 @@ acceptex vt lis acc ol =
       mask_ do
         ax lis acc o 0 sz sz b ol >>= ok' do pure ()
 
-foreign import capi "ax.h hs_finishaccept"
+foreign import capi unsafe "ax.h hs_finishaccept"
   hs_finishaccept :: SOCKET -> SOCKET -> IO CInt
 
 -- | finish accepting a socket
@@ -529,7 +544,7 @@ connectex vt s a al ol =
 connectex' :: VTABLE -> SOCKET -> AddrInfo -> Int -> LPOVERLAPPED -> IO ()
 connectex' vt s a al ol = sockaddr a >>= \b -> connectex vt s b al ol
 
-foreign import capi "winsock2.h WSARecv"
+foreign import capi unsafe "winsock2.h WSARecv"
   wsarecv :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> LPDWORD ->
              LPOVERLAPPED -> LPVOID -> IO CInt
 
@@ -574,7 +589,7 @@ recvmany s bs o =
       poke flags 0
       wsarecv s u lu nullPtr flags o nullPtr >>= ok do pure ()
 
-foreign import capi "winsock2.h WSASend"
+foreign import capi unsafe "winsock2.h WSASend"
   wsasend :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> DWORD ->
              LPOVERLAPPED -> LPVOID -> IO CInt
 
