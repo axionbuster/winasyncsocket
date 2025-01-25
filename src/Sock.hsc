@@ -637,5 +637,5 @@ managesocket sksk = do
 -- | close a managed socket
 close :: Socket -> IO ()
 close Socket {..} =
-  (takeMVar skok *> closesocket sksk)
+  (tryTakeMVar skok >>= maybe (pure ()) \_ -> closesocket sksk)
     `onException` putMVar skok ()
