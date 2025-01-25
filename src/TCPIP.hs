@@ -3,7 +3,34 @@
 -- Description: Integrate TCP\/IP socket I\/O with GHC
 -- Copyright: (c) axionbuster, 2025
 -- License: BSD-3-Clause
-module TCPIP where
+module TCPIP
+  ( -- * Types
+    AddrInfo (..),
+    Socket (..),
+    SocketError (..),
+    UnknownError (..),
+    ShutdownHow (..),
+
+    -- * Operations
+    socket,
+    getaddrinfo,
+    bind,
+    listen,
+    accept,
+    connect,
+    recvbuf,
+    sendbuf,
+    recv,
+    send,
+    shutdown,
+    close,
+
+    -- * Patterns
+    pattern SD_RECEIVE,
+    pattern SD_SEND,
+    pattern SD_BOTH,
+  )
+where
 
 import Control.Exception
 import Control.Monad
@@ -14,8 +41,18 @@ import Data.Functor
 import Data.IORef
 import Foreign hiding (void)
 import GHC.Event.Windows
-import GHC.Stack
-import Sock (AddrInfo (..), Socket (..), SocketError (..), sksk)
+import Sock
+  ( ADDRINFOW (..),
+    AddrInfo (..),
+    ShutdownHow (..),
+    Socket (..),
+    SocketError (..),
+    close,
+    sksk,
+    pattern SD_BOTH,
+    pattern SD_RECEIVE,
+    pattern SD_SEND,
+  )
 import Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
@@ -40,12 +77,17 @@ socket = S.socket S.AF_INET6 S.SOCK_STREAM S.IPPROTO_TCP >>= S.managesocket
 handleu :: S.SOCKET -> HANDLE
 handleu (S.SOCKET s) = wordPtrToPtr s
 
--- extract a HANDLE from a managed socket
-handlem :: Socket -> HANDLE
-handlem = handleu . sksk
+-- | IOCP (I\/O Completion Ports) error, uninformative
+data UnknownError = UnknownError
+  deriving (Show, Eq)
 
+-- | \"unknown IOCP error\"
+instance Exception UnknownError where
+  displayException _ = "unknown IOCP error"
+
+-- throw an IOCP error
 throwunknown :: IO a
-throwunknown = fail "unknown IOCP error"
+throwunknown = throwIO UnknownError
 
 iofail :: (Integral b) => b -> IO (IOResult a)
 iofail = pure . IOFailed . Just . fromIntegral
@@ -77,7 +119,7 @@ overlapped l a b c d =
 
 -- IOResult has a IOFailed :: Just Int -> IOResult x constructor.
 -- we take the Just Int part and throw it
-throw1 :: (HasCallStack) => Maybe Int -> IO a
+throw1 :: Maybe Int -> IO a
 throw1 (Just e) = throwIO $ SocketError $ fromIntegral e
 throw1 Nothing = throwunknown
 
@@ -97,12 +139,14 @@ getailen :: AddrInfo -> IO Int
 getailen (AddrInfo a) = withForeignPtr a do
   fmap (fromIntegral . S.ai_addrlen) . peek
 
--- | connect a socket to an address
+-- | connect a socket to an address. the socket must be bound using
+-- 'bind' first
 connect :: Socket -> AddrInfo -> IO ()
 connect (sksk -> l) a =
   overlapped
     do "connect"
     do handleu l
+    -- connectex' requires the socket to be bound first
     do \v o -> getailen a >>= \b -> S.connectex' v l a b o
     do const (pure ())
     do const (pure ())
@@ -137,3 +181,27 @@ recv s a = createAndTrim a \p -> recvbuf s p a
 -- | attempt to send the bytestring and measure how many bytes were sent
 send :: Socket -> ByteString -> IO Int
 send s a = unsafeUseAsCStringLen a $ uncurry $ sendbuf s
+
+-- | shut down a socket
+shutdown :: Socket -> ShutdownHow -> IO ()
+shutdown (sksk -> s) = S.shutdown s
+
+-- | bind a socket to an address
+bind :: Socket -> AddrInfo -> IO ()
+bind (sksk -> s) = S.bind s
+
+-- | mark the socket as /listening/ for new connections
+listen :: Socket -> IO ()
+listen (sksk -> s) = S.listen s
+
+-- | resolve the address given by the host (IP) and service (port)
+--
+-- protocol: TCP\/IP, IPv4 or IPv6 (dual mode)
+getaddrinfo :: String -> String -> IO AddrInfo
+getaddrinfo node service = S.getaddrinfo node service $ Just do
+  let ai = S.ADDRINFOW0
+   in ai
+        { ai_family = S.unaddrfamily S.AF_INET6,
+          ai_socktype = S.unsockettype S.SOCK_STREAM,
+          ai_protocol = S.unprotocol S.IPPROTO_TCP
+        }

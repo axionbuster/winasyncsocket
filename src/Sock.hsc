@@ -27,7 +27,8 @@ module Sock
   , ShutdownHow(..)
   , WSABUF(..)
   , LPWSABUF
-    -- * Type Patterns
+    -- * Patterns
+  , pattern ADDRINFOW0
   , pattern AF_INET
   , pattern AF_INET6
   , pattern SOCK_STREAM
@@ -43,7 +44,7 @@ module Sock
   , pattern SD_RECEIVE
   , pattern SD_SEND
   , pattern SD_BOTH
-    -- * Functions
+    -- * Operations
   , startup
   , socket
   , bind
@@ -197,6 +198,14 @@ instance Storable ADDRINFOW where
     #{poke ADDRINFOW, ai_canonname} p canonname
     #{poke ADDRINFOW, ai_addr} p addr
     #{poke ADDRINFOW, ai_next} p next
+
+pattern NULL :: Ptr a
+pattern NULL <- (const nullPtr -> _)
+  where NULL = nullPtr
+
+-- | a zero 'ADDRINFOW'
+pattern ADDRINFOW0 :: ADDRINFOW
+pattern ADDRINFOW0 = ADDRINFOW 0 0 0 0 0 NULL NULL NULL
 
 -- | a 'ForeignPtr' wrapper over 'ADDRINFOW'. it frees the 'ADDRINFOW' using
 -- the correct function
