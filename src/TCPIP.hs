@@ -14,6 +14,7 @@ module TCPIP
     ShutdownHow (..),
 
     -- * Operations
+    startup,
     socket,
     getaddrinfo,
     bind,
@@ -75,6 +76,10 @@ globalvtable = unsafePerformIO do
     do S.closesocket
     do S.loadvt >=> newIORef
 {-# NOINLINE globalvtable #-}
+
+-- | set up Winsock 2
+startup :: IO ()
+startup = void $ readIORef globalvtable
 
 -- | create a new managed socket
 socket :: IO Socket

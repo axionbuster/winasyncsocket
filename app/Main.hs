@@ -39,6 +39,7 @@ client = do
 
 main :: IO ()
 main = do
+  startup
   args <- getArgs
   catch
     case args of
@@ -47,5 +48,6 @@ main = do
       _ -> do
         hPutStrLn stderr "Usage: winsocktest2 --server|--client"
         error "Invalid arguments"
-    do \(e :: SomeException) ->
+    do
+      \(e :: SomeException) ->
         putStrLn $ "error: " ++ displayException e
