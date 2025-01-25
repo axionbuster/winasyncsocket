@@ -217,10 +217,10 @@ getaddrinfo :: String -> String -> IO AddrInfo
 getaddrinfo node service = S.getaddrinfo node service $ Just do
   let ai = S.ADDRINFOW0
    in ai
-        { ai_flags = S.unaddrflag $ S.AI_V4MAPPED .|. S.AI_ALL,
-          ai_family = S.unaddrfamily S.AF_INET6,
-          ai_socktype = S.unsockettype S.SOCK_STREAM,
-          ai_protocol = S.unprotocol S.IPPROTO_TCP
+        { ai_flags = S.AI_V4MAPPED .|. S.AI_ALL,
+          ai_family = S.AF_INET6,
+          ai_socktype = S.SOCK_STREAM,
+          ai_protocol = S.IPPROTO_TCP
         }
 
 -- | attempt to send all of the given 'ByteString'

@@ -30,12 +30,16 @@ module Sock
   , LPWSABUF
     -- * Patterns
   , pattern ADDRINFOW0
+  , pattern AI_zero
   , pattern AI_PASSIVE
   , pattern AI_V4MAPPED
   , pattern AI_ALL
+  , pattern AF_zero
   , pattern AF_INET
   , pattern AF_INET6
+  , pattern SOCK_zero
   , pattern SOCK_STREAM
+  , pattern IPPROTO_zero
   , pattern IPPROTO_TCP
   , pattern IPPROTO_UDP
   , pattern Success
@@ -224,10 +228,10 @@ startup =
 
 -- | the @ADDRINFOW@ structure from \<ws2def.h\>
 data ADDRINFOW = ADDRINFOW
-  { ai_flags :: CInt
-  , ai_family :: CInt
-  , ai_socktype :: CInt
-  , ai_protocol :: CInt
+  { ai_flags :: AddrFlag
+  , ai_family :: AddrFamily
+  , ai_socktype :: SocketType
+  , ai_protocol :: Protocol
   , ai_addrlen :: CSize
   , ai_canonname :: LPWSTR
   , ai_addr :: Ptr SockAddr
@@ -263,7 +267,8 @@ pattern NULL <- (const nullPtr -> _)
 
 -- | a zero 'ADDRINFOW'
 pattern ADDRINFOW0 :: ADDRINFOW
-pattern ADDRINFOW0 = ADDRINFOW 0 0 0 0 0 NULL NULL NULL
+pattern ADDRINFOW0 =
+  ADDRINFOW AI_zero AF_zero SOCK_zero IPPROTO_zero 0 NULL NULL NULL
 
 -- | a 'ForeignPtr' wrapper over 'ADDRINFOW'. it frees the 'ADDRINFOW' using
 -- the correct function
@@ -316,18 +321,36 @@ foreign import capi unsafe "winsock2.h WSASocketW"
 -- | address info flag. prefix: @AI_@.
 newtype AddrFlag = AddrFlag { unaddrflag :: CInt }
   deriving (Show, Eq)
-  deriving (Bits, FiniteBits) via (CInt)
+  deriving (Storable, Bits, FiniteBits) via (CInt)
 
 -- | address family. prefix: @AF_@
 newtype AddrFamily = AddrFamily { unaddrfamily :: CInt }
   deriving (Show, Eq)
-  deriving (Bits, FiniteBits) via (CInt)
+  deriving (Storable, Bits, FiniteBits) via (CInt)
+
+-- | socket type. prefix: @SOCK_@
+newtype SocketType = SocketType { unsockettype :: CInt }
+  deriving (Show, Eq)
+  deriving (Storable, Bits, FiniteBits) via (CInt)
+
+-- | protocol type. prefix: @IPPROTO_@
+newtype Protocol = Protocol { unprotocol :: CInt }
+  deriving (Show, Eq)
+  deriving (Storable, Bits, FiniteBits) via (CInt)
+
+-- | zero 'AddrFlag'
+pattern AI_zero :: AddrFlag
+pattern AI_zero = AddrFlag 0
 
 -- | allow wildcard addresses
 pattern AI_PASSIVE, AI_V4MAPPED, AI_ALL :: AddrFlag
 pattern AI_PASSIVE = AddrFlag #{const AI_PASSIVE}
 pattern AI_V4MAPPED = AddrFlag #{const AI_V4MAPPED}
 pattern AI_ALL = AddrFlag #{const AI_ALL}
+
+-- | zero 'AddrFamily'
+pattern AF_zero :: AddrFamily
+pattern AF_zero = AddrFamily 0
 
 -- | Internet Protocol (IP) version 4
 pattern AF_INET :: AddrFamily
@@ -340,17 +363,17 @@ pattern AF_INET = AddrFamily #{const AF_INET}
 pattern AF_INET6 :: AddrFamily
 pattern AF_INET6 = AddrFamily #{const AF_INET6}
 
--- | socket type. prefix: @SOCK_@
-newtype SocketType = SocketType { unsockettype :: CInt }
-  deriving (Show, Eq)
-  deriving (Bits, FiniteBits) via (CInt)
+-- | zero 'SocketType'
+pattern SOCK_zero :: SocketType
+pattern SOCK_zero = SocketType 0
 
 -- | reliable byte stream; TCP
 pattern SOCK_STREAM :: SocketType
 pattern SOCK_STREAM = SocketType #{const SOCK_STREAM}
 
--- | protocol type. prefix: @IPPROTO_@
-newtype Protocol = Protocol { unprotocol :: CInt }
+-- | zero 'Protocol'
+pattern IPPROTO_zero :: Protocol
+pattern IPPROTO_zero = Protocol 0
 
 pattern IPPROTO_TCP, IPPROTO_UDP :: Protocol
 -- | TCP
