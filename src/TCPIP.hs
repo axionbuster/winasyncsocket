@@ -8,15 +8,20 @@
 module TCPIP
   ( -- * Types
     AddrInfo (..),
+    ADDRINFOW (..),
     Socket (..),
     SocketError (..),
     UnknownError (..),
     ShutdownHow (..),
+    S.SockoptLevel (..),
+    S.SockoptName (..),
 
     -- * Operations
     startup,
     socket,
-    getaddrinfo,
+    socket',
+    S.getaddrinfo,
+    setsockopt_dword,
     bind,
     listen,
     accept,
@@ -31,11 +36,21 @@ module TCPIP
     send,
     shutdown,
     close,
+    addrinfow0,
 
     -- * Patterns
+    pattern S.ADDRINFOW0,
     pattern SD_RECEIVE,
     pattern SD_SEND,
     pattern SD_BOTH,
+    pattern S.AF_INET6,
+    pattern S.SOCK_STREAM,
+    pattern S.IPPROTO_TCP,
+    pattern S.AI_PASSIVE,
+    pattern S.SOL_SOCKET,
+    pattern S.IPPROTO_IPV6,
+    pattern S.SO_REUSEADDR,
+    pattern S.IPV6_V6ONLY,
   )
 where
 
@@ -74,7 +89,11 @@ globalvtable = unsafePerformIO do
   bracket -- load virtual function table
     do S.socket S.AF_INET6 S.SOCK_STREAM S.IPPROTO_TCP
     do S.closesocket
-    do S.loadvt >=> newIORef
+    \s -> do
+      -- enable dual mode for IPv6 so we can accept
+      -- both IPv4 and IPv6 connections
+      S.setsockopt_dword s S.IPPROTO_IPV6 S.IPV6_V6ONLY 0
+      S.loadvt s >>= newIORef
 {-# NOINLINE globalvtable #-}
 
 -- | set up Winsock 2
@@ -84,6 +103,11 @@ startup = void $ readIORef globalvtable
 -- | create a new managed socket
 socket :: IO Socket
 socket = S.socket S.AF_INET6 S.SOCK_STREAM S.IPPROTO_TCP >>= S.managesocket
+
+-- | create a new managed socket with given address family, socket type,
+-- and protocol
+socket' :: S.AddrFamily -> S.SocketType -> S.Protocol -> IO Socket
+socket' a b c = S.socket a b c >>= S.managesocket
 
 -- turn an unmanaged socket into a HANDLE
 handleu :: S.SOCKET -> HANDLE
@@ -210,18 +234,13 @@ bind (sksk -> s) = S.bind s
 listen :: Socket -> IO ()
 listen (sksk -> s) = S.listen s
 
--- | resolve the address given by the host (IP) and service (port)
---
--- protocol: TCP\/IP, IPv4 or IPv6 (dual mode)
-getaddrinfo :: String -> String -> IO AddrInfo
-getaddrinfo node service = S.getaddrinfo node service $ Just do
-  let ai = S.ADDRINFOW0
-   in ai
-        { ai_flags = S.AI_V4MAPPED .|. S.AI_ALL,
-          ai_family = S.AF_INET6,
-          ai_socktype = S.SOCK_STREAM,
-          ai_protocol = S.IPPROTO_TCP
-        }
+-- | set a socket option (@DWORD@)
+setsockopt_dword :: Socket -> S.SockoptLevel -> S.SockoptName -> DWORD -> IO ()
+setsockopt_dword (sksk -> s) = S.setsockopt_dword s
+
+-- | term equal to 'S.ADDRINFOW0' (useful for record updates)
+addrinfow0 :: ADDRINFOW
+addrinfow0 = S.ADDRINFOW0
 
 -- | attempt to send all of the given 'ByteString'
 sendall, sendAll :: Socket -> ByteString -> IO ()

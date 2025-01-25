@@ -23,6 +23,8 @@ module Sock
   , Protocol(..)
   , ADDRINFOW(..)
   , SockAddr
+  , SockoptLevel(..)
+  , SockoptName(..)
   , AddrInfo(..)
   , SocketError(..)
   , ShutdownHow(..)
@@ -42,6 +44,10 @@ module Sock
   , pattern IPPROTO_zero
   , pattern IPPROTO_TCP
   , pattern IPPROTO_UDP
+  , pattern SOL_SOCKET
+  , pattern IPPROTO_IPV6
+  , pattern SO_REUSEADDR
+  , pattern IPV6_V6ONLY
   , pattern Success
   , pattern WouldBlock
   , pattern NotSupported
@@ -54,6 +60,7 @@ module Sock
   , pattern SD_BOTH
     -- * Operations
   , startup
+  , setsockopt_dword
   , socket
   , bind
   , listen
@@ -225,6 +232,50 @@ startup =
         throwsk NotSupported
       pure ()
     e -> throwsk e
+
+-- | a socket option level. prefix: many. see Microsoft's documentation.
+newtype SockoptLevel = SockoptLevel { unsockoptlevel :: CInt }
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
+
+-- | general socket options
+pattern SOL_SOCKET :: SockoptLevel
+pattern SOL_SOCKET = SockoptLevel #{const SOL_SOCKET}
+
+-- | IPv6 socket options
+pattern IPPROTO_IPV6 :: SockoptLevel
+pattern IPPROTO_IPV6 = SockoptLevel #{const IPPROTO_IPV6}
+
+-- | socket options
+newtype SockoptName = SockoptName { unsockoptname :: CInt }
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
+
+-- | reuse of the local address and port
+pattern SO_REUSEADDR :: SockoptName
+pattern SO_REUSEADDR = SockoptName #{const SO_REUSEADDR}
+
+-- | enable or disable the dual-mode socket option for IPv6 sockets
+--
+-- use 'setsockopt_dword' with either 1 or 0 to set this option
+pattern IPV6_V6ONLY :: SockoptName
+pattern IPV6_V6ONLY = SockoptName #{const IPV6_V6ONLY}
+
+foreign import capi unsafe "winsock2.h setsockopt"
+  c_setsockopt :: SOCKET -> SockoptLevel ->
+                  SockoptName -> Ptr CChar -> CInt -> IO CInt
+
+-- methinks it's too dangerous to make a general setsockopt that
+-- works with all Storable types. it's better to have a separate
+-- function for each type of value. or maybe do a typeclass
+-- or type family. idk.
+
+-- | set a socket option with a DWORD value
+setsockopt_dword :: SOCKET -> SockoptLevel -> SockoptName -> DWORD -> IO ()
+setsockopt_dword s l n v =
+  alloca \p -> do
+    poke p v
+    mask_ do c_setsockopt s l n (castPtr p) #{size DWORD} >>= ok (pure ())
 
 -- | the @ADDRINFOW@ structure from \<ws2def.h\>
 data ADDRINFOW = ADDRINFOW
@@ -412,7 +463,7 @@ foreign import capi unsafe "winsock2.h listen"
 
 -- | allow a bound socket to listen for connections (TCP)
 listen :: SOCKET -> IO ()
-listen s = mask_ do c_listen s 0 >>= ok (pure ())
+listen s = mask_ do c_listen s 128 >>= ok (pure ())
 
 -- | a virtual table for socket extensions
 data VTABLE = VTABLE
