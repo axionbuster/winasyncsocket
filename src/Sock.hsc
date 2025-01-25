@@ -629,9 +629,10 @@ managesocket sksk = do
     mask_ do
       catch
         do tryTakeMVar skok >>= maybe (pure ()) do
-            const do closesocket sksk
-        do \(e :: SocketError) -> putMVar skok () *>
-            traceIO do displayException e
+             const do closesocket sksk
+        do -- if finalizer fails, yell in the console
+           \(e :: SocketError) -> putMVar skok () *>
+             traceIO do displayException e
   pure x
 
 -- | close a managed socket
