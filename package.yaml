@@ -10,6 +10,9 @@ language: GHC2021
 
 default-extensions:
 - BlockArguments
+- DeriveAnyClass
+- DerivingStrategies
+- DerivingVia
 - CApiFFI
 - CPP
 - LambdaCase

@@ -17,6 +17,7 @@ module Sock
     SOCKET(..)
   , Socket(..)
   , VTABLE(..)
+  , AddrFlag(..)
   , AddrFamily(..)
   , SocketType(..)
   , Protocol(..)
@@ -29,6 +30,9 @@ module Sock
   , LPWSABUF
     -- * Patterns
   , pattern ADDRINFOW0
+  , pattern AI_PASSIVE
+  , pattern AI_V4MAPPED
+  , pattern AI_ALL
   , pattern AF_INET
   , pattern AF_INET6
   , pattern SOCK_STREAM
@@ -106,7 +110,8 @@ import System.Win32.Types
 
 -- | raw socket error as returned by WSAGetLastError()
 newtype SocketError = SocketError { getskerr :: CInt }
-  deriving (Eq, Show, Storable)
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
 
 foreign import capi unsafe "winbase.h LocalFree"
   localfree :: LPVOID -> IO ()
@@ -182,7 +187,8 @@ pattern SOCKET_ERROR = #{const SOCKET_ERROR}
 
 -- | raw socket type
 newtype SOCKET = SOCKET { unsocket :: WordPtr }
-  deriving (Eq, Show, Storable)
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
 
 -- | a placeholder socket number
 pattern INVALID_SOCKET :: SOCKET
@@ -307,9 +313,21 @@ foreign import capi unsafe "winsock2.h WSASocketW"
   wsasocketw :: CInt -> CInt -> CInt -> Ptr (WSAPROTOCOL_INFOW)
                -> GROUP -> DWORD -> IO SOCKET
 
+-- | address info flag. prefix: @AI_@.
+newtype AddrFlag = AddrFlag { unaddrflag :: CInt }
+  deriving (Show, Eq)
+  deriving (Bits, FiniteBits) via (CInt)
+
 -- | address family. prefix: @AF_@
 newtype AddrFamily = AddrFamily { unaddrfamily :: CInt }
   deriving (Show, Eq)
+  deriving (Bits, FiniteBits) via (CInt)
+
+-- | allow wildcard addresses
+pattern AI_PASSIVE, AI_V4MAPPED, AI_ALL :: AddrFlag
+pattern AI_PASSIVE = AddrFlag #{const AI_PASSIVE}
+pattern AI_V4MAPPED = AddrFlag #{const AI_V4MAPPED}
+pattern AI_ALL = AddrFlag #{const AI_ALL}
 
 -- | Internet Protocol (IP) version 4
 pattern AF_INET :: AddrFamily
@@ -325,6 +343,7 @@ pattern AF_INET6 = AddrFamily #{const AF_INET6}
 -- | socket type. prefix: @SOCK_@
 newtype SocketType = SocketType { unsockettype :: CInt }
   deriving (Show, Eq)
+  deriving (Bits, FiniteBits) via (CInt)
 
 -- | reliable byte stream; TCP
 pattern SOCK_STREAM :: SocketType
@@ -616,6 +635,9 @@ data Socket = Socket
     -- mutex for finalization. if locked, it's either closing or has been closed
   , skok :: MVar ()
   }
+
+instance Show Socket where
+  show = show . sksk
 
 -- | manage a socket so it will be closed when it goes out of scope.
 -- uses 'closesocket' without 'shutdown'

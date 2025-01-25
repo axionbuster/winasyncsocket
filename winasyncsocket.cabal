@@ -38,6 +38,9 @@ library
       src
   default-extensions:
       BlockArguments
+      DeriveAnyClass
+      DerivingStrategies
+      DerivingVia
       CApiFFI
       CPP
       LambdaCase
@@ -68,6 +71,9 @@ executable winasyncsocket-exe
       app
   default-extensions:
       BlockArguments
+      DeriveAnyClass
+      DerivingStrategies
+      DerivingVia
       CApiFFI
       CPP
       LambdaCase

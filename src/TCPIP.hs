@@ -164,7 +164,7 @@ connect (sksk -> l) a =
     do const (pure ())
 
 -- | receive a buffer; corresponds to @recvBuf@ from package "network"
-recvbuf :: Socket -> Ptr a -> Int -> IO Int
+recvbuf, recvBuf :: Socket -> Ptr a -> Int -> IO Int
 recvbuf (sksk -> l) b c =
   overlapped
     do "recvbuf"
@@ -173,14 +173,11 @@ recvbuf (sksk -> l) b c =
     do const $ S.recv l $ S.WSABUF (fromIntegral c) (castPtr b)
     do pure
     do pure . fromIntegral
-
--- | compatibility with "network". see 'recvbuf'
-recvBuf :: Socket -> Ptr a -> Int -> IO Int
 recvBuf = recvbuf
 {-# INLINE recvBuf #-}
 
 -- | send a buffer; corresponds to @sendBuf@ from package "network"
-sendbuf :: Socket -> Ptr a -> Int -> IO Int
+sendbuf, sendBuf :: Socket -> Ptr a -> Int -> IO Int
 sendbuf (sksk -> l) b c =
   overlapped
     do "sendbuf"
@@ -188,9 +185,6 @@ sendbuf (sksk -> l) b c =
     do const $ S.send l $ S.WSABUF (fromIntegral c) (castPtr b)
     do pure
     do pure . fromIntegral
-
--- | compatibility with "network". see 'sendbuf'
-sendBuf :: Socket -> Ptr a -> Int -> IO Int
 sendBuf = sendbuf
 {-# INLINE sendBuf #-}
 
@@ -223,7 +217,8 @@ getaddrinfo :: String -> String -> IO AddrInfo
 getaddrinfo node service = S.getaddrinfo node service $ Just do
   let ai = S.ADDRINFOW0
    in ai
-        { ai_family = S.unaddrfamily S.AF_INET6,
+        { ai_flags = S.unaddrflag $ S.AI_V4MAPPED .|. S.AI_ALL,
+          ai_family = S.unaddrfamily S.AF_INET6,
           ai_socktype = S.unsockettype S.SOCK_STREAM,
           ai_protocol = S.unprotocol S.IPPROTO_TCP
         }
