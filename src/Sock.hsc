@@ -404,7 +404,8 @@ bind :: SOCKET -> AddrInfo -> IO ()
 bind s (AddrInfo ai) = mask_ do
   withForeignPtr ai \pai -> do
     sa <- #{peek ADDRINFOW, ai_addr} pai
-    c_bind s sa #{size struct sockaddr} >>= ok (pure ())
+    le <- #{peek ADDRINFOW, ai_addrlen} pai
+    c_bind s sa le >>= ok (pure ())
 
 foreign import capi unsafe "winsock2.h listen"
   c_listen :: SOCKET -> CInt -> IO CInt

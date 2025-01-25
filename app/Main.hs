@@ -4,6 +4,7 @@ module Main (main) where
 import Control.Exception
 import Control.Monad
 import Data.ByteString.Char8 qualified as C
+import Debug.Trace
 import System.Environment
 import System.IO
 import TCPIP
@@ -13,8 +14,11 @@ server = do
   hPutStrLn stderr "Starting server on localhost:50123"
   addr <- getaddrinfo "127.0.0.1" "50123"
   bracket socket close \sock -> do
+    traceIO "point 1"
     bind sock addr
+    traceIO "point 2"
     listen sock
+    traceIO "point 3"
     forever $ bracket (accept sock) close \c -> do
       hPutStrLn stderr "Client connected"
       forever do
