@@ -1,10 +1,10 @@
-name:                winsocktest2
+name:                winasyncsocket
 version:             0.1.0.0
-github:              "githubuser/winsocktest2"
+github:              "githubuser/winasyncsocket"
 license:             BSD-3-Clause
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2025 Author name here"
+author:              "axionbuster"
+maintainer:          "axionbuster@gmail.com"
+copyright:           "2025 axionbuster"
 
 language: GHC2021
 
@@ -20,21 +20,22 @@ default-extensions:
 
 extra-source-files:
 - README.md
+
+extra-doc-files:
 - CHANGELOG.md
 
-# Metadata used when publishing your package
-# synopsis:            Short description of your package
-# category:            Web
+synopsis:            Windows Asynchronous Socket Programming in Haskell
+category:            Network, System
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/githubuser/winsocktest2#readme>
+description:         Please see the README on GitHub at <https://github.com/githubuser/winasyncsocket#readme>
 
 dependencies:
 - base >= 4.7 && < 5
-- bytestring
-- Win32
+- bytestring >= 0.12.1 && < 0.13
+- Win32 >= 2.13.4 && < 2.14
 
 ghc-options:
 - -Wall
@@ -46,7 +47,6 @@ ghc-options:
 - -Wmissing-home-modules
 - -Wpartial-fields
 - -Wredundant-constraints
-- -O0
 
 library:
   source-dirs: src
@@ -56,7 +56,7 @@ library:
   build-tools: hsc2hs
 
 executables:
-  winsocktest2-exe:
+  winasyncsocket-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -64,4 +64,4 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - winsocktest2
+    - winasyncsocket

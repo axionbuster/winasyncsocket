@@ -1,0 +1,84 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           winasyncsocket
+version:        0.1.0.0
+synopsis:       Windows Asynchronous Socket Programming in Haskell
+description:    Please see the README on GitHub at <https://github.com/githubuser/winasyncsocket#readme>
+category:       Network, System
+homepage:       https://github.com/githubuser/winasyncsocket#readme
+bug-reports:    https://github.com/githubuser/winasyncsocket/issues
+author:         axionbuster
+maintainer:     axionbuster@gmail.com
+copyright:      2025 axionbuster
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+extra-doc-files:
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/winasyncsocket
+
+library
+  exposed-modules:
+      Sock
+      TCPIP
+  other-modules:
+      Paths_winasyncsocket
+  autogen-modules:
+      Paths_winasyncsocket
+  hs-source-dirs:
+      src
+  default-extensions:
+      BlockArguments
+      CApiFFI
+      CPP
+      LambdaCase
+      OverloadedRecordDot
+      PatternSynonyms
+      RecordWildCards
+      ViewPatterns
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  include-dirs:
+      src
+  c-sources:
+      src/ax.c
+  build-tools:
+      hsc2hs
+  build-depends:
+      Win32 >=2.13.4 && <2.14
+    , base >=4.7 && <5
+    , bytestring >=0.12.1 && <0.13
+  default-language: GHC2021
+
+executable winasyncsocket-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_winasyncsocket
+  autogen-modules:
+      Paths_winasyncsocket
+  hs-source-dirs:
+      app
+  default-extensions:
+      BlockArguments
+      CApiFFI
+      CPP
+      LambdaCase
+      OverloadedRecordDot
+      PatternSynonyms
+      RecordWildCards
+      ViewPatterns
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Win32 >=2.13.4 && <2.14
+    , base >=4.7 && <5
+    , bytestring >=0.12.1 && <0.13
+    , winasyncsocket
+  default-language: GHC2021

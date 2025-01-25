@@ -1,8 +1,10 @@
 -- |
 -- Module: TCPIP
--- Description: Integrate TCP\/IP socket I\/O with GHC
+-- Description: Integrate TCP\/IP socket I\/O with GHC (Windows)
 -- Copyright: (c) axionbuster, 2025
 -- License: BSD-3-Clause
+--
+-- This module integrates asynchronous TCP\/IP primitives with RTS.
 module TCPIP
   ( -- * Types
     AddrInfo (..),
@@ -19,7 +21,9 @@ module TCPIP
     accept,
     connect,
     recvbuf,
+    recvBuf,
     sendbuf,
+    sendBuf,
     recv,
     send,
     shutdown,
@@ -162,6 +166,11 @@ recvbuf (sksk -> l) b c =
     do pure
     do pure . fromIntegral
 
+-- | compatibility with "network". see 'recvbuf'
+recvBuf :: Socket -> Ptr a -> Int -> IO Int
+recvBuf = recvbuf
+{-# INLINE recvBuf #-}
+
 -- | send a buffer; corresponds to @sendBuf@ from package "network"
 sendbuf :: Socket -> Ptr a -> Int -> IO Int
 sendbuf (sksk -> l) b c =
@@ -171,6 +180,11 @@ sendbuf (sksk -> l) b c =
     do const $ S.send l $ S.WSABUF (fromIntegral c) (castPtr b)
     do pure
     do pure . fromIntegral
+
+-- | compatibility with "network". see 'sendbuf'
+sendBuf :: Socket -> Ptr a -> Int -> IO Int
+sendBuf = sendbuf
+{-# INLINE sendBuf #-}
 
 -- TODO: Sock also has recvmany and sendmany for vectored I/O
 
