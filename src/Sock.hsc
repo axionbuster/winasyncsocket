@@ -69,11 +69,12 @@ module Sock
 
 -- frustratingly, formatter 'ormolu' doesn't work.
 
+import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Data.Bits
-import Data.IORef
 import Data.List (unsnoc)
+import Debug.Trace
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
@@ -609,26 +610,32 @@ sendmany s bs o =
 
 -- | a managed 'SOCKET'. see: 'managesocket', 'close'
 data Socket = Socket
-  { -- | extract the underlying 'SOCKET'
+  { -- | extract the underlying 'SOCKET' so we can use raw API.
+    -- be careful when using an unmanaged socket
     sksk :: SOCKET
-  , skok :: IORef Bool
+    -- mutex for finalization. if locked, it's either closing or has been closed
+  , skok :: MVar ()
   }
 
 -- | manage a socket so it will be closed when it goes out of scope.
 -- uses 'closesocket' without 'shutdown'
 managesocket :: SOCKET -> IO Socket
 managesocket sksk = do
-  skok <- newIORef True
-  let sock = Socket {..}
-  addFinalizer sock do
-    readIORef skok >>= \case
-      True -> atomicWriteIORef skok False *> closesocket sksk
-      _ -> pure ()
-  pure sock
+  skok <- newMVar ()
+  let x = Socket {..}
+  addFinalizer x do
+    -- strictly speaking, on exception, there's no point in unlocking
+    -- the mutex, but i'm just gonna do it
+    mask_ do
+      catch
+        do tryTakeMVar skok >>= maybe (pure ()) do
+            const do closesocket sksk
+        do \(e :: SocketError) -> putMVar skok () *>
+            traceIO do displayException e
+  pure x
 
 -- | close a managed socket
 close :: Socket -> IO ()
-close (Socket s o) =
-  readIORef o >>= \case
-    True -> writeIORef o False *> closesocket s
-    _ -> pure ()
+close Socket {..} =
+  (takeMVar skok *> closesocket sksk)
+    `onException` putMVar skok ()
