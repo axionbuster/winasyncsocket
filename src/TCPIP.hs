@@ -7,6 +7,9 @@ module TCPIP where
 
 import Control.Exception
 import Control.Monad
+import Data.ByteString (ByteString)
+import Data.ByteString.Internal (createAndTrim)
+import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Functor
 import Data.IORef
 import Foreign hiding (void)
@@ -126,3 +129,11 @@ sendbuf (sksk -> l) b c =
     do pure . fromIntegral
 
 -- TODO: Sock also has recvmany and sendmany for vectored I/O
+
+-- | receive up to a certain number of bytes
+recv :: Socket -> Int -> IO ByteString
+recv s a = createAndTrim a \p -> recvbuf s p a
+
+-- | attempt to send the bytestring and measure how many bytes were sent
+send :: Socket -> ByteString -> IO Int
+send s a = unsafeUseAsCStringLen a $ uncurry $ sendbuf s

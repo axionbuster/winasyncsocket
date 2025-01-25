@@ -53,6 +53,7 @@ library
   build-depends:
       Win32
     , base >=4.7 && <5
+    , bytestring
   default-language: GHC2021
 
 executable winsocktest2-exe
@@ -76,5 +77,6 @@ executable winsocktest2-exe
   build-depends:
       Win32
     , base >=4.7 && <5
+    , bytestring
     , winsocktest2
   default-language: GHC2021
