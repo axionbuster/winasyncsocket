@@ -40,9 +40,12 @@ client = do
 main :: IO ()
 main = do
   args <- getArgs
-  case args of
-    ["--server"] -> server
-    ["--client"] -> client
-    _ -> do
-      hPutStrLn stderr "Usage: winsocktest2 --server|--client"
-      error "Invalid arguments"
+  catch
+    case args of
+      ["--server"] -> server
+      ["--client"] -> client
+      _ -> do
+        hPutStrLn stderr "Usage: winsocktest2 --server|--client"
+        error "Invalid arguments"
+    do \(e :: SomeException) ->
+        putStrLn $ "error: " ++ displayException e

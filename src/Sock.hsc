@@ -109,41 +109,40 @@ newtype SocketError = SocketError { getskerr :: CInt }
 foreign import capi unsafe "winbase.h LocalFree"
   localfree :: LPVOID -> IO ()
 
-foreign import capi unsafe "winbase.h FormatMessage"
+foreign import capi unsafe "winbase.h FormatMessageW"
   -- the type of the 5th argument [out lpBuffer; LPTSTR*] depends on a flag in
   -- the 1st argument [in dwFlags; DWORD]: if it contains
   -- FORMAT_MESSAGE_ALLOCATE_BUFFER, then lpBuffer has type LPTSTR *, and
   -- it will point to the OS-allocated string to be freed by using LocalFree.
   -- otherwise, lpBuffer has type LPTSTR, and we need to allocate it ourselves.
-  formatmessage :: DWORD -> LPVOID -> DWORD -> DWORD -> Ptr LPTSTR -> DWORD ->
-                   LPVOID -> IO DWORD
+  formatmessagew :: DWORD -> LPVOID -> DWORD -> DWORD -> Ptr LPWSTR -> DWORD ->
+                    LPVOID -> IO DWORD
 
 foreign import capi unsafe "winnt.h MAKELANGID"
   makelangid :: DWORD -> DWORD -> DWORD
 
 -- | string fetched from the Windows API. yes, we make a /syscall/.
 instance Exception SocketError where
-  displayException (SocketError s) = "Socket error: " ++ show m
+  displayException (SocketError s) = "Socket error: " ++ m
     where
       m = unsafeDupablePerformIO do
         mask_ do
           alloca \b ->
-            formatmessage
+            formatmessagew
               do #{const FORMAT_MESSAGE_ALLOCATE_BUFFER}
                   .|. #{const FORMAT_MESSAGE_FROM_SYSTEM}
               do nullPtr
               do fromIntegral s
               do makelangid #{const LANG_NEUTRAL} #{const SUBLANG_NEUTRAL}
               do b
-              do 101 -- minimum buffer size; some random prime because why not.
+              do 0
               do nullPtr -- va_list * [in, optional]
               >>= \case
                 -- 0: failure, resort to showing number
                 0 -> pure $ "<Winsock2 error code " ++ show s ++ ">"
-                _ -> do
-                  o <- peek b >>= peekTString
-                  localfree (castPtr b)
-                  pure o
+                n -> do
+                  u <- peek b
+                  peekCWStringLen (u, fromIntegral n) <* localfree (castPtr u)
 
 -- | no error
 pattern Success :: SocketError
@@ -274,15 +273,15 @@ getaddrinfo node service (Just hints) =
   withCWString service \s ->
   alloca \h -> do
     poke h hints
-    alloca \a ->
+    alloca \a -> mask_ do
       getaddrinfow n s h a >>= ok do
         peek a >>= fmap AddrInfo . newForeignPtr freeaddrinfow
 getaddrinfo node service Nothing =
   withCWString node \n ->
   withCWString service \s ->
-  alloca \a ->
-  getaddrinfow n s nullPtr a >>= ok do
-    peek a >>= fmap AddrInfo . newForeignPtr freeaddrinfow
+  alloca \a -> mask_ do
+    getaddrinfow n s nullPtr a >>= ok do
+      peek a >>= fmap AddrInfo . newForeignPtr freeaddrinfow
 
 type GROUP = #{type GROUP}
 
@@ -330,10 +329,11 @@ socket af ty proto =
   let info = nullPtr
       grp = 0
       flags = #{const WSA_FLAG_OVERLAPPED}
-   in wsasocketw (unaddrfamily af) (unsockettype ty)
-                 (unprotocol proto) info grp flags >>= \case
-        INVALID_SOCKET -> wsagetlasterror >>= throwsk
-        s -> pure s
+   in mask_ do
+        wsasocketw (unaddrfamily af) (unsockettype ty)
+                   (unprotocol proto) info grp flags >>= \case
+          INVALID_SOCKET -> wsagetlasterror >>= throwsk
+          s -> pure s
 
 -- | a socket address (opaque)
 data SockAddr
@@ -343,7 +343,7 @@ foreign import capi unsafe "winsock2.h bind"
 
 -- | bind a socket to an address
 bind :: SOCKET -> AddrInfo -> IO ()
-bind s (AddrInfo ai) =
+bind s (AddrInfo ai) = mask_ do
   withForeignPtr ai \pai -> do
     sa <- #{peek ADDRINFOW, ai_addr} pai
     c_bind s sa #{size struct sockaddr} >>= ok (pure ())
@@ -353,7 +353,7 @@ foreign import capi unsafe "winsock2.h listen"
 
 -- | allow a bound socket to listen for connections (TCP)
 listen :: SOCKET -> IO ()
-listen s = c_listen s 0 >>= ok (pure ())
+listen s = mask_ do c_listen s 0 >>= ok (pure ())
 
 -- | a virtual table for socket extensions
 data VTABLE = VTABLE
@@ -408,24 +408,25 @@ foreign import capi "ax.h hs_getguid"
 loadfunc :: SOCKET -> Ptr LPVOID -> Ptr GUID -> IO ()
 loadfunc s f g =
   alloca \outsizptr ->
-  wsaioctl
-    s
-    #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
-    do castPtr g
-    #{size GUID}
-    f
-    #{size LPVOID}
-    outsizptr
-    nullPtr
-    nullPtr
-    >>= ok do pure ()
+  mask_ do
+    wsaioctl
+      s
+      #{const SIO_GET_EXTENSION_FUNCTION_POINTER}
+      do castPtr g
+      #{size GUID}
+      f
+      #{size LPVOID}
+      outsizptr
+      nullPtr
+      nullPtr
+      >>= ok do pure ()
 
 -- | load the socket extension functions
 loadvt :: SOCKET -> IO VTABLE
 loadvt s = do
   let l h = alloca \g -> do
         hs_getguid g h
-        alloca \pp -> do
+        alloca \pp -> mask_ do
           loadfunc s pp g
           peek pp
   VTABLE
@@ -456,7 +457,7 @@ foreign import capi "winsock2.h shutdown"
 --
 -- this does not close the socket.
 shutdown :: SOCKET -> ShutdownHow -> IO ()
-shutdown s h = c_shutdown s h >>= ok do pure ()
+shutdown s h = mask_ do c_shutdown s h >>= ok (pure ())
 
 foreign import capi "winsock2.h closesocket"
   c_closesocket :: SOCKET -> IO CInt
@@ -469,7 +470,7 @@ foreign import capi "winsock2.h closesocket"
 -- - cannot assume all I/O operations will be ended when it returns.
 -- - system may immediately reuse socket number.
 closesocket :: SOCKET -> IO ()
-closesocket = c_closesocket >=> ok do pure ()
+closesocket s = mask_ do c_closesocket s >>= ok (pure ())
 
 type AcceptEx = SOCKET -> SOCKET -> LPVOID ->
                 DWORD -> DWORD -> DWORD -> LPDWORD -> LPOVERLAPPED ->
@@ -494,14 +495,15 @@ acceptex vt lis acc ol =
       sz = fromIntegral @Int @DWORD $ 16 + #{size SOCKADDR_IN}
    in allocaBytes (3 * fromIntegral sz) \o ->
       alloca \b ->
-      ax lis acc o 0 sz sz b ol >>= ok' do pure ()
+      mask_ do
+        ax lis acc o 0 sz sz b ol >>= ok' do pure ()
 
 foreign import capi "ax.h hs_finishaccept"
   hs_finishaccept :: SOCKET -> SOCKET -> IO CInt
 
 -- | finish accepting a socket
 finishaccept :: SOCKET -> SOCKET -> IO ()
-finishaccept lis acc = hs_finishaccept lis acc >>= ok do pure ()
+finishaccept lis acc = mask_ do hs_finishaccept lis acc >>= ok (pure ())
 
 -- | get the socket address for use with 'connectex'
 sockaddr :: AddrInfo -> IO (Ptr SockAddr)
@@ -519,7 +521,8 @@ foreign import ccall "dynamic"
 connectex :: VTABLE -> SOCKET -> Ptr SockAddr -> Int -> LPOVERLAPPED -> IO ()
 connectex vt s a al ol =
   let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
-   in cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok' do pure ()
+   in mask_ do
+        cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok' do pure ()
 
 -- | run 'connectex' on an 'AddrInfo' using 'sockaddr' to extract the
 -- @'Ptr' 'SockAddr'@
@@ -554,7 +557,7 @@ recv :: SOCKET -> WSABUF -> LPOVERLAPPED -> IO ()
 recv s b o =
   alloca \u -> do
     poke u b
-    alloca \flags -> do
+    alloca \flags -> mask_ do
       poke flags 0
       -- 1. expects an array of buffers. here we give a length of 1.
       -- array is copied before wsarecv returns.
@@ -567,7 +570,7 @@ recvmany :: SOCKET -> [WSABUF] -> LPOVERLAPPED -> IO ()
 recvmany _ [] _ = pure ()
 recvmany s bs o =
   withArrayLen bs \(fromIntegral -> lu) u ->
-    alloca \flags -> do
+    alloca \flags -> mask_ do
       poke flags 0
       wsarecv s u lu nullPtr flags o nullPtr >>= ok do pure ()
 
@@ -578,7 +581,7 @@ foreign import capi "winsock2.h WSASend"
 -- | send a buffer. see: 'sendmany', 'recv'
 send :: SOCKET -> WSABUF -> LPOVERLAPPED -> IO ()
 send s b o =
-  alloca \u -> do
+  alloca \u -> mask_ do
     poke u b
     wsasend s u 1 nullPtr 0 o nullPtr >>= ok do pure ()
 
@@ -586,8 +589,8 @@ send s b o =
 sendmany :: SOCKET -> [WSABUF] -> LPOVERLAPPED -> IO ()
 sendmany _ [] _ = pure ()
 sendmany s bs o =
-  withArrayLen bs \(fromIntegral -> lu) u ->
-  wsasend s u lu nullPtr 0 o nullPtr >>= ok do pure ()
+  withArrayLen bs \(fromIntegral -> lu) u -> mask_ do
+    wsasend s u lu nullPtr 0 o nullPtr >>= ok do pure ()
 
 -- | a managed 'SOCKET'. see: 'managesocket', 'close'
 data Socket = Socket
