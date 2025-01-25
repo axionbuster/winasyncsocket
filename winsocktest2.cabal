@@ -27,6 +27,7 @@ library
   exposed-modules:
       Lib
       Sock
+      TCPIP
   other-modules:
       Paths_winsocktest2
   autogen-modules:

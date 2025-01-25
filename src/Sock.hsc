@@ -14,8 +14,8 @@ Unicode operations are used wherever possible.
 -}
 module Sock
   ( -- * Types
-    SOCKET
-  , Socket
+    SOCKET(..)
+  , Socket(..)
   , VTABLE(..)
   , AddrFamily(..)
   , SocketType(..)
@@ -53,6 +53,7 @@ module Sock
   , shutdown
   , closesocket
   , acceptex
+  , finishaccept
   , sockaddr
   , connectex
   , connectex'
@@ -61,7 +62,6 @@ module Sock
   , send
   , sendmany
   -- * Managed sockets
-  , sksk
   , managesocket
   , close
   ) where
@@ -100,7 +100,7 @@ import System.Win32.Types
 #include "ax.h"
 
 -- | raw socket error as returned by WSAGetLastError()
-newtype SocketError = SocketError CInt
+newtype SocketError = SocketError { getskerr :: CInt }
   deriving (Eq, Show, Storable)
 
 instance Exception SocketError where
@@ -449,6 +449,13 @@ acceptex vt lis acc ol =
    in allocaBytes (3 * fromIntegral sz) \o ->
       alloca \b ->
       ax lis acc o 0 sz sz b ol >>= ok' do pure ()
+
+foreign import capi "ax.h hs_finishaccept"
+  hs_finishaccept :: SOCKET -> SOCKET -> IO CInt
+
+-- | finish accepting a socket
+finishaccept :: SOCKET -> SOCKET -> IO ()
+finishaccept lis acc = hs_finishaccept lis acc >>= ok do pure ()
 
 -- | get the socket address for use with 'connectex'
 sockaddr :: AddrInfo -> IO (Ptr SockAddr)
