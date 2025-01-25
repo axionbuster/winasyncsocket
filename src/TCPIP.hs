@@ -55,8 +55,8 @@ overlapped ::
   HANDLE ->
   -- call extension method with given vtable and LPOVERLAPPED
   (S.VTABLE -> LPOVERLAPPED -> IO a) ->
-  -- do this when it returns from RTS
-  IO t ->
+  -- do this with the number of bytes transferred when done successfully
+  (DWORD -> IO t) ->
   -- if no error, polish up returned value from withOverlapped
   (t -> IO b) ->
   -- value returned from withOverlapped
@@ -69,7 +69,7 @@ overlapped l a b c d =
     b' o = do
       v <- readIORef globalvtable
       catch (b v o $> CbPending) do pure . CbError . fromIntegral . getskerr
-    c' 0 _ = IOSuccess <$> c
+    c' 0 x = IOSuccess <$> c x
     c' e _ = iofail e
 
 -- IOResult has a IOFailed :: Just Int -> IOResult x constructor.
@@ -86,7 +86,7 @@ accept (sksk -> l) = do
     do "accept"
     do handleu l
     do \v -> S.acceptex v l (sksk a)
-    do S.finishaccept l (sksk a)
+    do const $ S.finishaccept l (sksk a)
     do const (pure a)
 
 -- get the ai_addrlen from an AddrInfo pointer
@@ -101,5 +101,28 @@ connect (sksk -> l) a =
     do "connect"
     do handleu l
     do \v o -> getailen a >>= \b -> S.connectex' v l a b o
-    do pure ()
     do const (pure ())
+    do const (pure ())
+
+-- | receive a buffer; corresponds to @recvBuf@ from package "network"
+recvbuf :: Socket -> Ptr a -> Int -> IO Int
+recvbuf (sksk -> l) b c =
+  overlapped
+    do "recvbuf"
+    do handleu l
+    -- recvbuf, sendbuf: not using one of the extension methods
+    do const $ S.recv l $ S.WSABUF (fromIntegral c) (castPtr b)
+    do pure
+    do pure . fromIntegral
+
+-- | send a buffer; corresponds to @sendBuf@ from package "network"
+sendbuf :: Socket -> Ptr a -> Int -> IO Int
+sendbuf (sksk -> l) b c =
+  overlapped
+    do "sendbuf"
+    do handleu l
+    do const $ S.send l $ S.WSABUF (fromIntegral c) (castPtr b)
+    do pure
+    do pure . fromIntegral
+
+-- TODO: Sock also has recvmany and sendmany for vectored I/O
