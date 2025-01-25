@@ -9,9 +9,10 @@ import Control.Exception
 import Control.Monad
 import Data.Functor
 import Data.IORef
-import Foreign.Ptr
+import Foreign hiding (void)
 import GHC.Event.Windows
-import Sock (Socket (..), SocketError (..), sksk)
+import GHC.Stack
+import Sock (AddrInfo (..), Socket (..), SocketError (..), sksk)
 import Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
@@ -43,9 +44,37 @@ handlem = handleu . sksk
 throwunknown :: IO a
 throwunknown = fail "unknown IOCP error"
 
+iofail :: (Integral b) => b -> IO (IOResult a)
+iofail = pure . IOFailed . Just . fromIntegral
+
+-- abbreviation of highly repetitive code
+overlapped ::
+  -- label
+  String ->
+  -- HANDLE (socket)
+  HANDLE ->
+  -- call extension method with given vtable and LPOVERLAPPED
+  (S.VTABLE -> LPOVERLAPPED -> IO a) ->
+  -- do this when it returns from RTS
+  IO t ->
+  -- if no error, polish up returned value from withOverlapped
+  (t -> IO b) ->
+  -- value returned from withOverlapped
+  IO b
+overlapped l a b c d =
+  withOverlapped l a 0 b' c' >>= \case
+    IOSuccess q -> d q
+    IOFailed e -> throw1 e
+  where
+    b' o = do
+      v <- readIORef globalvtable
+      catch (b v o $> CbPending) do pure . CbError . fromIntegral . getskerr
+    c' 0 _ = IOSuccess <$> c
+    c' e _ = iofail e
+
 -- IOResult has a IOFailed :: Just Int -> IOResult x constructor.
 -- we take the Just Int part and throw it
-throw1 :: Maybe Int -> IO a
+throw1 :: (HasCallStack) => Maybe Int -> IO a
 throw1 (Just e) = throwIO $ SocketError $ fromIntegral e
 throw1 Nothing = throwunknown
 
@@ -53,23 +82,24 @@ throw1 Nothing = throwunknown
 accept :: Socket -> IO Socket
 accept (sksk -> l) = do
   a <- socket
-  v <- readIORef globalvtable
-  let start :: LPOVERLAPPED -> IO (CbResult Int)
-      start o = catch
-        do S.acceptex v l (sksk a) o $> CbPending
-        do pure . CbError . fromIntegral . getskerr
-      complete :: DWORD -> DWORD -> IO (IOResult Socket)
-      complete 0 _ = S.finishaccept l (sksk a) $> IOSuccess a
-      complete e _ = pure $ IOFailed $ Just $ fromIntegral e
-  -- withOverlapped provides the OVERLAPPED structure to the OS;
-  -- keeps a callback table; queues the event to the event loop as well as
-  -- the OS and suspends the Haskell thread until it returns
-  withOverlapped
+  overlapped
     do "accept"
     do handleu l
-    do 0 -- Offset/OffsetHigh
-    do start
-    do complete
-    >>= \case
-      IOSuccess _ -> pure a -- payload contains a
-      IOFailed e -> throw1 e
+    do \v -> S.acceptex v l (sksk a)
+    do S.finishaccept l (sksk a)
+    do const (pure a)
+
+-- get the ai_addrlen from an AddrInfo pointer
+getailen :: AddrInfo -> IO Int
+getailen (AddrInfo a) = withForeignPtr a do
+  fmap (fromIntegral . S.ai_addrlen) . peek
+
+-- | connect a socket to an address
+connect :: Socket -> AddrInfo -> IO ()
+connect (sksk -> l) a =
+  overlapped
+    do "connect"
+    do handleu l
+    do \v o -> getailen a >>= \b -> S.connectex' v l a b o
+    do pure ()
+    do const (pure ())
