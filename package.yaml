@@ -67,5 +67,6 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -with-rtsopts=--io-manager=native
     dependencies:
     - winasyncsocket
