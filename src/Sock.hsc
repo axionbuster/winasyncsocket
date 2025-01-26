@@ -36,6 +36,7 @@ module Sock
   , WSABUF(..)
   , LPWSABUF
   , WSAPROTOCOL_INFOW(..)
+  , AsyncStatus(..)
     -- * Patterns
   , pattern ADDRINFOW0
   , pattern AI_zero
@@ -743,24 +744,27 @@ type AcceptEx = SOCKET -> SOCKET -> LPVOID ->
 foreign import ccall "dynamic"
   vt_acceptex :: FunPtr AcceptEx -> AcceptEx
 
--- like 'ok', but for CBool
-ok' :: IO a -> CBool -> IO a
-ok' a = \case
-  1 -> a
-  0 -> wsagetlasterror >>= \case
-        Pending -> a
-        e -> throwsk e
-  x -> error $ "ok': CBool returned something other than 1 or 0" ++ show x
+-- | for asynchronous actions; only when it is successful or pending
+-- (errors get thrown)
+data AsyncStatus = OK | PENDING
+  deriving (Show, Eq, Enum, Bounded)
+
+-- like 'ok', but for CBool; also handles 'Pending' (= 'Nothing')
+ok' :: CBool -> IO AsyncStatus
+ok' 1 = pure OK
+ok' 0 = wsagetlasterror >>= \case
+  Pending -> pure PENDING
+  e -> throwsk e
+ok' x = error $ "ok': CBool returned something other than 1 or 0" ++ show x
 
 -- | accept a connection from the listening socket; set up accepting socket
-acceptex :: VTABLE -> SOCKET -> SOCKET -> LPOVERLAPPED -> IO ()
+acceptex :: VTABLE -> SOCKET -> SOCKET -> LPOVERLAPPED -> IO AsyncStatus
 acceptex vt lis acc ol =
   let ax = vt_acceptex $ castPtrToFunPtr vt.sx_acceptex
       sz = fromIntegral @Int @DWORD $ 16 + #{size SOCKADDR_IN}
    in allocaBytes (3 * fromIntegral sz) \o ->
       alloca \b ->
-      mask_ do
-        ax lis acc o 0 sz sz b ol >>= ok' do pure ()
+      mask_ do ax lis acc o 0 sz sz b ol >>= ok'
 
 foreign import capi unsafe "ax.h hs_finishaccept"
   hs_finishaccept :: SOCKET -> SOCKET -> IO CInt
@@ -860,15 +864,16 @@ foreign import ccall "dynamic"
   vt_connectex :: FunPtr ConnectEx -> ConnectEx
 
 -- | given a bound socket, connect to a server
-connectex :: VTABLE -> SOCKET -> Ptr SockAddr -> Int -> LPOVERLAPPED -> IO ()
+connectex :: VTABLE -> SOCKET -> Ptr SockAddr ->
+             Int -> LPOVERLAPPED -> IO AsyncStatus
 connectex vt s a al ol =
   let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
-   in mask_ do
-        cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok' do pure ()
+   in mask_ do cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok'
 
 -- | run 'connectex' on an 'AddrInfo' using 'sockaddr' to extract the
 -- @'Ptr' 'SockAddr'@
-connectex' :: VTABLE -> SOCKET -> AddrInfo -> Int -> LPOVERLAPPED -> IO ()
+connectex' :: VTABLE -> SOCKET -> AddrInfo ->
+              Int -> LPOVERLAPPED -> IO AsyncStatus
 connectex' vt s a al ol = sockaddr a >>= \b -> connectex vt s b al ol
 
 foreign import capi unsafe "winsock2.h WSARecv"

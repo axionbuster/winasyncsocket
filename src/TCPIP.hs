@@ -76,10 +76,10 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
-import Data.Functor
 import Data.IORef
 import Foreign hiding (void)
 import GHC.Event.Windows
+import GHC.Event.Windows.FFI
 import Sock
   ( ADDRINFOW (..),
     AddrInfo (..),
@@ -151,7 +151,7 @@ overlapped ::
   -- HANDLE (socket)
   HANDLE ->
   -- call extension method with given vtable and LPOVERLAPPED
-  (S.VTABLE -> LPOVERLAPPED -> IO a) ->
+  (S.VTABLE -> LPOVERLAPPED -> IO S.AsyncStatus) ->
   -- do this with the number of bytes transferred when done successfully
   (DWORD -> IO t) ->
   -- if no error, polish up returned value from withOverlapped
@@ -165,7 +165,11 @@ overlapped l a b c d =
   where
     b' o = do
       v <- readIORef globalvtable
-      catch (b v o $> CbPending) do pure . CbError . fromIntegral . getskerr
+      catch
+        do b v o >>= \case
+            S.OK -> CbDone <$> getOverlappedResult a o False -- no wait
+            S.PENDING -> pure CbPending
+        do pure . CbError . fromIntegral . getskerr
     c' 0 x = IOSuccess <$> c x
     c' e _ = iofail e
 
@@ -207,7 +211,6 @@ connect (sksk -> l) a = do
   overlapped
     do "connect"
     do handleu l
-    -- connectex' requires the socket to be bound first
     do \v o -> getailen a >>= \b -> S.connectex' v l a b o
     do const (pure ())
     do const (pure ())
@@ -219,7 +222,9 @@ recvbuf (sksk -> l) b c =
     do "recvbuf"
     do handleu l
     -- recvbuf, sendbuf: not using one of the extension methods
-    do const $ S.recv l $ S.WSABUF (fromIntegral c) (castPtr b)
+    do \_ o -> do
+        S.recv l (S.WSABUF (fromIntegral c) (castPtr b)) o
+        pure S.PENDING
     do pure
     do pure . fromIntegral
 recvBuf = recvbuf
@@ -231,7 +236,9 @@ sendbuf (sksk -> l) b c =
   overlapped
     do "sendbuf"
     do handleu l
-    do const $ S.send l $ S.WSABUF (fromIntegral c) (castPtr b)
+    do \_ o -> do
+        S.send l (S.WSABUF (fromIntegral c) (castPtr b)) o
+        pure S.PENDING
     do pure
     do pure . fromIntegral
 sendBuf = sendbuf
