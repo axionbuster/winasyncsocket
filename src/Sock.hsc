@@ -22,7 +22,12 @@ module Sock
   , SocketType(..)
   , Protocol(..)
   , ADDRINFOW(..)
-  , SockAddr
+  , SockAddr(..)
+  , InAddr(..)
+  , SockAddrIn(..)
+  , In6Addr(..)
+  , SockAddrIn6(..)
+  , SockAddrIn6Old(..)
   , SockoptLevel(..)
   , SockoptName(..)
   , AddrInfo(..)
@@ -30,6 +35,7 @@ module Sock
   , ShutdownHow(..)
   , WSABUF(..)
   , LPWSABUF
+  , WSAPROTOCOL_INFOW(..)
     -- * Patterns
   , pattern ADDRINFOW0
   , pattern AI_zero
@@ -44,9 +50,11 @@ module Sock
   , pattern IPPROTO_zero
   , pattern IPPROTO_TCP
   , pattern IPPROTO_UDP
+  , pattern INADDR_ANY
   , pattern SOL_SOCKET
   , pattern IPPROTO_IPV6
   , pattern SO_REUSEADDR
+  , pattern SO_PROTOCOL_INFO
   , pattern IPV6_V6ONLY
   , pattern Success
   , pattern WouldBlock
@@ -65,6 +73,8 @@ module Sock
   , bind
   , listen
   , getaddrinfo
+  , c_getsockopt -- unusual, but type sig hard 2 translate
+  , getprotocolinfo
   , loadvt
   , shutdown
   , closesocket
@@ -77,6 +87,11 @@ module Sock
   , recvmany
   , send
   , sendmany
+  , sockaddr0
+  , sockaddrin0
+  , in6addr0
+  , sockaddrin60
+  , sockaddrin6old0
   -- * Managed sockets
   , managesocket
   , close
@@ -261,6 +276,10 @@ pattern SO_REUSEADDR = SockoptName #{const SO_REUSEADDR}
 pattern IPV6_V6ONLY :: SockoptName
 pattern IPV6_V6ONLY = SockoptName #{const IPV6_V6ONLY}
 
+-- | protocol information
+pattern SO_PROTOCOL_INFO :: SockoptName
+pattern SO_PROTOCOL_INFO = SockoptName #{const SO_PROTOCOL_INFO}
+
 foreign import capi unsafe "winsock2.h setsockopt"
   c_setsockopt :: SOCKET -> SockoptLevel ->
                   SockoptName -> Ptr CChar -> CInt -> IO CInt
@@ -363,8 +382,6 @@ getaddrinfo node service Nothing =
 
 type GROUP = #{type GROUP}
 
-data WSAPROTOCOL_INFOW
-
 foreign import capi unsafe "winsock2.h WSASocketW"
   wsasocketw :: CInt -> CInt -> CInt -> Ptr (WSAPROTOCOL_INFOW)
                -> GROUP -> DWORD -> IO SOCKET
@@ -445,18 +462,155 @@ socket af ty proto =
           s -> pure s
 
 -- | a socket address (opaque)
-data SockAddr
+data SockAddr = SockAddr
+  { sa_family :: CShort
+  , sa_data :: [CChar] -- 14 bytes
+  }
+  deriving (Show, Eq)
+
+-- | unsafe: 'sa_data' (14 bytes) is not checked for length
+instance Storable SockAddr where
+  sizeOf _ = #{size SOCKADDR}
+  alignment _ = #{alignment SOCKADDR}
+  peek p = SockAddr
+    <$> #{peek SOCKADDR, sa_family} p
+    <*> peekArray 14 (#{ptr SOCKADDR, sa_data} p)
+  poke p (SockAddr f d) = do
+    #{poke SOCKADDR, sa_family} p f
+    pokeArray (#{ptr SOCKADDR, sa_data} p) d
+
+-- | a zero 'SockAddr'
+sockaddr0 :: SockAddr
+sockaddr0 = SockAddr 0 (replicate 14 0)
+
+-- | a socket address for IPv4
+newtype InAddr = InAddr
+  { s_addr :: DWORD -- 4 bytes
+  }
+  deriving (Storable, Eq) via DWORD
+  deriving stock (Show)
+
+-- | any address
+pattern INADDR_ANY :: InAddr
+pattern INADDR_ANY = InAddr #{const INADDR_ANY}
+
+-- | a socket address (in) for IPv4
+data SockAddrIn = SockAddrIn
+  { sin_family :: CShort
+  , sin_port :: CUShort
+  , sin_addr :: InAddr
+  , sin_zero :: [CChar] -- 8 bytes
+  }
+  deriving (Show, Eq)
+
+-- | unsafe: 'sin_zero' (8 bytes) is not checked for length
+instance Storable SockAddrIn where
+  sizeOf _ = #{size SOCKADDR_IN}
+  alignment _ = #{alignment SOCKADDR_IN}
+  peek p = SockAddrIn
+    <$> #{peek SOCKADDR_IN, sin_family} p
+    <*> #{peek SOCKADDR_IN, sin_port} p
+    <*> #{peek SOCKADDR_IN, sin_addr} p
+    <*> peekArray 8 (#{ptr SOCKADDR_IN, sin_zero} p)
+  poke p (SockAddrIn f po a z) = do
+    #{poke SOCKADDR_IN, sin_family} p f
+    #{poke SOCKADDR_IN, sin_port} p po
+    #{poke SOCKADDR_IN, sin_addr} p a
+    pokeArray (#{ptr SOCKADDR_IN, sin_zero} p) z
+
+-- | a zero 'SockAddrIn'
+sockaddrin0 :: SockAddrIn
+sockaddrin0 = SockAddrIn 0 0 INADDR_ANY (replicate 8 0)
+
+-- | a socket address for IPv6; 16 bytes
+newtype In6Addr = In6Addr
+  { in6_addr :: [CChar] -- 16 bytes
+  }
+  deriving (Eq) via [CChar]
+  deriving stock (Show)
+
+-- | unsafe: 'in6_addr' (16 bytes) is not checked for length
+instance Storable In6Addr where
+  sizeOf _ = #{size struct in6_addr}
+  alignment _ = #{alignment struct in6_addr}
+  peek p = In6Addr <$> peekArray 16 (castPtr p)
+  poke p (In6Addr a) = pokeArray (castPtr p) a
+
+-- | a zero 'In6Addr'
+in6addr0 :: In6Addr
+in6addr0 = In6Addr (replicate 16 0)
+
+-- | a socket address (in) for IPv6
+data SockAddrIn6 = SockAddrIn6
+  { sin6_family :: CShort
+  , sin6_port :: CUShort
+  , sin6_flowinfo :: CULong
+  , sin6_addr :: In6Addr
+  , sin6_scope_id :: CULong
+  }
+  deriving (Show, Eq)
+
+instance Storable SockAddrIn6 where
+  sizeOf _ = #{size SOCKADDR_IN6}
+  alignment _ = #{alignment SOCKADDR_IN6}
+  peek p = SockAddrIn6
+    <$> #{peek SOCKADDR_IN6, sin6_family} p
+    <*> #{peek SOCKADDR_IN6, sin6_port} p
+    <*> #{peek SOCKADDR_IN6, sin6_flowinfo} p
+    <*> #{peek SOCKADDR_IN6, sin6_addr} p
+    <*> #{peek SOCKADDR_IN6, sin6_scope_id} p
+  poke p (SockAddrIn6 f po fi a si) = do
+    #{poke SOCKADDR_IN6, sin6_family} p f
+    #{poke SOCKADDR_IN6, sin6_port} p po
+    #{poke SOCKADDR_IN6, sin6_flowinfo} p fi
+    #{poke SOCKADDR_IN6, sin6_addr} p a
+    #{poke SOCKADDR_IN6, sin6_scope_id} p si
+
+-- | a zero 'SockAddrIn6'
+sockaddrin60 :: SockAddrIn6
+sockaddrin60 = SockAddrIn6 0 0 0 in6addr0 0
+
+-- | old socket address (in) for IPv6
+data SockAddrIn6Old = SockAddrIn6Old
+  { sin6_family :: CShort
+  , sin6_port :: CUShort
+  , sin6_flowinfo :: CULong
+  , sin6_addr :: In6Addr
+  }
+  deriving (Show, Eq)
+
+instance Storable SockAddrIn6Old where
+  sizeOf _ = #{size struct sockaddr_in6_old }
+  alignment _ = #{alignment struct sockaddr_in6_old }
+  peek p = SockAddrIn6Old
+    <$> #{peek struct sockaddr_in6_old, sin6_family} p
+    <*> #{peek struct sockaddr_in6_old, sin6_port} p
+    <*> #{peek struct sockaddr_in6_old, sin6_flowinfo} p
+    <*> #{peek struct sockaddr_in6_old, sin6_addr} p
+  poke p (SockAddrIn6Old f po fi a) = do
+    #{poke struct sockaddr_in6_old, sin6_family} p f
+    #{poke struct sockaddr_in6_old, sin6_port} p po
+    #{poke struct sockaddr_in6_old, sin6_flowinfo} p fi
+    #{poke struct sockaddr_in6_old, sin6_addr} p a
+
+-- | a zero 'SockAddrIn6Old'
+sockaddrin6old0 :: SockAddrIn6Old
+sockaddrin6old0 = SockAddrIn6Old 0 0 0 in6addr0
 
 foreign import capi unsafe "winsock2.h bind"
   c_bind :: SOCKET -> Ptr SockAddr -> CInt -> IO CInt
 
 -- | bind a socket to an address
-bind :: SOCKET -> AddrInfo -> IO ()
-bind s (AddrInfo ai) = mask_ do
-  withForeignPtr ai \pai -> do
-    sa <- #{peek ADDRINFOW, ai_addr} pai
-    le <- #{peek ADDRINFOW, ai_addrlen} pai
-    c_bind s sa le >>= ok (pure ())
+bind :: SOCKET -> SockAddrIn -> IO ()
+bind s i = mask_ do
+  alloca \j -> do
+    poke j i
+    -- Microsoft: Since the SOCKADDR_STORAGE structure is sufficiently large to
+    -- store address information for IPv4, IPv6, or other address families, its
+    -- use promotes protocol-family and protocol-version independence and
+    -- simplifies cross-platform development.
+    -- https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms740504(v=vs.85)
+    c_bind s (castPtr j) #{size SOCKADDR_STORAGE} >>= ok (pure ())
 
 foreign import capi unsafe "winsock2.h listen"
   c_listen :: SOCKET -> CInt -> IO CInt
@@ -615,11 +769,89 @@ foreign import capi unsafe "ax.h hs_finishaccept"
 finishaccept :: SOCKET -> SOCKET -> IO ()
 finishaccept lis acc = mask_ do hs_finishaccept lis acc >>= ok (pure ())
 
+-- | The WSAPROTOCOL_INFOW structure contains properties of a Windows Sockets protocol
+data WSAPROTOCOL_INFOW = WSAPROTOCOL_INFOW
+  { dwServiceFlags1 :: DWORD
+  , dwServiceFlags2 :: DWORD 
+  , dwServiceFlags3 :: DWORD
+  , dwServiceFlags4 :: DWORD
+  , dwProviderFlags :: DWORD
+  , providerId :: GUID
+  , dwCatalogEntryId :: DWORD
+  , iVersion :: CInt
+  , iAddressFamily :: AddrFamily
+  , iMaxSockAddr :: CInt
+  , iMinSockAddr :: CInt
+  , iSocketType :: SocketType
+  , iProtocol :: Protocol
+  , iProtocolMaxOffset :: CInt
+  , iNetworkByteOrder :: CInt
+  , iSecurityScheme :: CInt
+  , dwMessageSize :: DWORD
+  , dwProviderReserved :: DWORD
+  } deriving (Show, Eq)
+
+instance Storable WSAPROTOCOL_INFOW where
+  sizeOf _ = #{size WSAPROTOCOL_INFOW}
+  alignment _ = #{alignment WSAPROTOCOL_INFOW} 
+  peek p = WSAPROTOCOL_INFOW
+    <$> #{peek WSAPROTOCOL_INFOW, dwServiceFlags1} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwServiceFlags2} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwServiceFlags3} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwServiceFlags4} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwProviderFlags} p
+    <*> #{peek WSAPROTOCOL_INFOW, ProviderId} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwCatalogEntryId} p
+    <*> #{peek WSAPROTOCOL_INFOW, iVersion} p
+    <*> #{peek WSAPROTOCOL_INFOW, iAddressFamily} p
+    <*> #{peek WSAPROTOCOL_INFOW, iMaxSockAddr} p
+    <*> #{peek WSAPROTOCOL_INFOW, iMinSockAddr} p
+    <*> #{peek WSAPROTOCOL_INFOW, iSocketType} p
+    <*> #{peek WSAPROTOCOL_INFOW, iProtocol} p
+    <*> #{peek WSAPROTOCOL_INFOW, iProtocolMaxOffset} p
+    <*> #{peek WSAPROTOCOL_INFOW, iNetworkByteOrder} p
+    <*> #{peek WSAPROTOCOL_INFOW, iSecurityScheme} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwMessageSize} p
+    <*> #{peek WSAPROTOCOL_INFOW, dwProviderReserved} p
+  poke p x = do
+    #{poke WSAPROTOCOL_INFOW, dwServiceFlags1} p (dwServiceFlags1 x)
+    #{poke WSAPROTOCOL_INFOW, dwServiceFlags2} p (dwServiceFlags2 x)
+    #{poke WSAPROTOCOL_INFOW, dwServiceFlags3} p (dwServiceFlags3 x)
+    #{poke WSAPROTOCOL_INFOW, dwServiceFlags4} p (dwServiceFlags4 x)
+    #{poke WSAPROTOCOL_INFOW, dwProviderFlags} p (dwProviderFlags x)
+    #{poke WSAPROTOCOL_INFOW, ProviderId} p (providerId x)
+    #{poke WSAPROTOCOL_INFOW, dwCatalogEntryId} p (dwCatalogEntryId x)
+    #{poke WSAPROTOCOL_INFOW, iVersion} p (iVersion x)
+    #{poke WSAPROTOCOL_INFOW, iAddressFamily} p (iAddressFamily x)
+    #{poke WSAPROTOCOL_INFOW, iMaxSockAddr} p (iMaxSockAddr x)
+    #{poke WSAPROTOCOL_INFOW, iMinSockAddr} p (iMinSockAddr x)
+    #{poke WSAPROTOCOL_INFOW, iSocketType} p (iSocketType x)
+    #{poke WSAPROTOCOL_INFOW, iProtocol} p (iProtocol x)
+    #{poke WSAPROTOCOL_INFOW, iProtocolMaxOffset} p (iProtocolMaxOffset x)
+    #{poke WSAPROTOCOL_INFOW, iNetworkByteOrder} p (iNetworkByteOrder x)
+    #{poke WSAPROTOCOL_INFOW, iSecurityScheme} p (iSecurityScheme x)
+    #{poke WSAPROTOCOL_INFOW, dwMessageSize} p (dwMessageSize x)
+    #{poke WSAPROTOCOL_INFOW, dwProviderReserved} p (dwProviderReserved x)
+
 -- | get the socket address for use with 'connectex'
 sockaddr :: AddrInfo -> IO (Ptr SockAddr)
 sockaddr (AddrInfo ai) =
   withForeignPtr ai \a ->
   ai_addr <$> peek a
+
+foreign import capi unsafe "winsock2.h getsockopt"
+  c_getsockopt :: SOCKET -> SockoptLevel -> SockoptName -> Ptr CChar ->
+                  Ptr CInt -> IO CInt
+
+-- | get the protocol information for a socket
+getprotocolinfo :: SOCKET -> IO WSAPROTOCOL_INFOW
+getprotocolinfo s = do
+  let l = #{size WSAPROTOCOL_INFOW}
+  allocaBytes l \p ->
+    alloca \l' -> mask_ do
+      poke l' l
+      c_getsockopt s SOL_SOCKET SO_PROTOCOL_INFO (castPtr p) (castPtr l')
+        >>= ok do peek p
 
 type ConnectEx = SOCKET -> Ptr SockAddr -> CInt -> LPVOID ->
                  DWORD -> LPDWORD -> LPOVERLAPPED -> IO CBool

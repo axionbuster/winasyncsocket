@@ -8,6 +8,9 @@
 module TCPIP
   ( -- * Types
     AddrInfo (..),
+    S.AddrFlag (..),
+    S.AddrFamily (..),
+    S.Protocol (..),
     ADDRINFOW (..),
     Socket (..),
     SocketError (..),
@@ -15,11 +18,17 @@ module TCPIP
     ShutdownHow (..),
     S.SockoptLevel (..),
     S.SockoptName (..),
+    S.SocketType (..),
+    S.SockAddr (..),
+    S.SockAddrIn (..),
+    S.InAddr (..),
+    S.In6Addr (..),
+    S.SockAddrIn6 (..),
+    S.SockAddrIn6Old (..),
 
     -- * Operations
     startup,
     socket,
-    socket',
     S.getaddrinfo,
     setsockopt_dword,
     bind,
@@ -37,12 +46,19 @@ module TCPIP
     shutdown,
     close,
     addrinfow0,
+    S.sockaddr0,
+    S.sockaddrin0,
+    S.in6addr0,
+    S.sockaddrin60,
+    S.sockaddrin6old0,
 
     -- * Patterns
     pattern S.ADDRINFOW0,
+    pattern S.INADDR_ANY,
     pattern SD_RECEIVE,
     pattern SD_SEND,
     pattern SD_BOTH,
+    pattern S.AF_INET,
     pattern S.AF_INET6,
     pattern S.SOCK_STREAM,
     pattern S.IPPROTO_TCP,
@@ -62,6 +78,7 @@ import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Functor
 import Data.IORef
+import Debug.Trace
 import Foreign hiding (void)
 import GHC.Event.Windows
 import Sock
@@ -100,14 +117,14 @@ globalvtable = unsafePerformIO do
 startup :: IO ()
 startup = void $ readIORef globalvtable
 
--- | create a new managed socket
-socket :: IO Socket
-socket = S.socket S.AF_INET6 S.SOCK_STREAM S.IPPROTO_TCP >>= S.managesocket
-
 -- | create a new managed socket with given address family, socket type,
 -- and protocol
-socket' :: S.AddrFamily -> S.SocketType -> S.Protocol -> IO Socket
-socket' a b c = S.socket a b c >>= S.managesocket
+socket :: S.AddrFamily -> S.SocketType -> S.Protocol -> IO Socket
+socket a b c = mask_ do
+  s <- S.socket a b c
+  t <- S.managesocket s
+  associateHandle' (handleu s)
+  pure t
 
 -- turn an unmanaged socket into a HANDLE
 handleu :: S.SOCKET -> HANDLE
@@ -162,7 +179,9 @@ throw1 Nothing = throwunknown
 -- | accept a new connection
 accept :: Socket -> IO Socket
 accept (sksk -> l) = do
-  a <- socket
+  -- allocate a new socket with the same protocol info
+  i <- S.getprotocolinfo l
+  a <- socket i.iAddressFamily i.iSocketType i.iProtocol
   overlapped
     do "accept"
     do handleu l
@@ -227,7 +246,7 @@ shutdown :: Socket -> ShutdownHow -> IO ()
 shutdown (sksk -> s) = S.shutdown s
 
 -- | bind a socket to an address
-bind :: Socket -> AddrInfo -> IO ()
+bind :: Socket -> S.SockAddrIn -> IO ()
 bind (sksk -> s) = S.bind s
 
 -- | mark the socket as /listening/ for new connections
