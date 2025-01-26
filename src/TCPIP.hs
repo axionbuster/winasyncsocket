@@ -51,6 +51,7 @@ module TCPIP
     S.in6addr0,
     S.sockaddrin60,
     S.sockaddrin6old0,
+    S.sockaddrin,
 
     -- * Patterns
     pattern S.ADDRINFOW0,
@@ -95,6 +96,7 @@ import Sock
 import Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
+import Debug.Trace
 
 -- global virtual function table for certain socket extension methods.
 -- this requirement is imposed by Windows Sockets API
@@ -183,8 +185,11 @@ throw1 Nothing = throwunknown
 accept :: Socket -> IO Socket
 accept (sksk -> l) = do
   -- allocate a new socket with the same protocol info
+  traceIO "getprotocolinfo"
   i <- S.getprotocolinfo l
+  traceIO "socket"
   a <- socket i.iAddressFamily i.iSocketType i.iProtocol
+  traceIO "overlapped"
   overlapped
     do "accept"
     do handleu l
@@ -223,7 +228,9 @@ recvbuf (sksk -> l) b c =
     do handleu l
     -- recvbuf, sendbuf: not using one of the extension methods
     do \_ o -> do
+        traceIO "S.recv"
         S.recv l (S.WSABUF (fromIntegral c) (castPtr b)) o
+        traceIO "past S.recv"
         pure S.PENDING
     do pure
     do pure . fromIntegral

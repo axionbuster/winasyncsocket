@@ -3,11 +3,45 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Fix
 import Data.ByteString.Char8 qualified as C
 import Debug.Trace
 import System.Environment
 import System.IO
 import TCPIP
+
+server :: IO ()
+server = do
+  hPutStrLn stderr "starting server on localhost:50123"
+  let ai1 = 
+        addrinfow0
+          { ai_socktype = SOCK_STREAM
+          , ai_protocol = IPPROTO_TCP
+          , ai_family = AF_INET
+          }
+      mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
+  addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
+  bracket mksocket close \sock -> do
+    sockaddrin addr >>= bind sock
+    listen sock
+    hPutStrLn stderr "listening for connections..."
+    forever do
+      bracket
+        do accept sock
+        do close
+        do \c -> do
+            hPutStrLn stderr "client connected"
+            handle (\(e :: IOException) -> hPrint stderr e) do
+              -- Echo loop
+              fix \loop -> do
+                traceIO "waiting for message"
+                msg <- recv c 1024
+                traceIO "message received"
+                when (C.length msg > 0) do
+                  traceIO "sending message back"
+                  sendall c msg
+                  traceIO "message sent"
+                  loop
 
 client :: IO ()
 client = do
@@ -36,7 +70,7 @@ main = do
   args <- getArgs
   catch
     case args of
-      ["--server"] -> error "server not implemented"
+      ["--server"] -> server
       ["--client"] -> client
       _ -> do
         hPutStrLn stderr "Usage: winsocktest2 --server|--client"

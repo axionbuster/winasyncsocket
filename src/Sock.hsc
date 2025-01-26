@@ -93,6 +93,7 @@ module Sock
   , in6addr0
   , sockaddrin60
   , sockaddrin6old0
+  , sockaddrin
   -- * Managed sockets
   , managesocket
   , close
@@ -460,7 +461,9 @@ socket af ty proto =
         wsasocketw (unaddrfamily af) (unsockettype ty)
                    (unprotocol proto) info grp flags >>= \case
           INVALID_SOCKET -> wsagetlasterror >>= throwsk
-          s -> pure s
+          s -> do
+            traceIO $ "created socket " ++ show s
+            pure s
 
 -- | a socket address (opaque)
 data SockAddr = SockAddr
@@ -735,7 +738,9 @@ foreign import capi unsafe "winsock2.h closesocket"
 -- - cannot assume all I/O operations will be ended when it returns.
 -- - system may immediately reuse socket number.
 closesocket :: SOCKET -> IO ()
-closesocket s = mask_ do c_closesocket s >>= ok (pure ())
+closesocket s = mask_ do
+  traceIO $ "closing socket " ++ show s
+  c_closesocket s >>= ok (pure ())
 
 type AcceptEx = SOCKET -> SOCKET -> LPVOID ->
                 DWORD -> DWORD -> DWORD -> LPDWORD -> LPOVERLAPPED ->
@@ -842,6 +847,10 @@ sockaddr :: AddrInfo -> IO (Ptr SockAddr)
 sockaddr (AddrInfo ai) =
   withForeignPtr ai \a ->
   ai_addr <$> peek a
+
+-- | get the socket address for use with ''
+sockaddrin :: AddrInfo -> IO SockAddrIn
+sockaddrin a = sockaddr a >>= peek . castPtr
 
 foreign import capi unsafe "winsock2.h getsockopt"
   c_getsockopt :: SOCKET -> SockoptLevel -> SockoptName -> Ptr CChar ->
@@ -961,6 +970,7 @@ managesocket sksk = do
     -- strictly speaking, on exception, there's no point in unlocking
     -- the mutex, but i'm just gonna do it
     mask_ do
+      traceIO $ "finalizing socket " ++ show sksk
       catch
         do tryTakeMVar skok >>= maybe (pure ()) do
              const do closesocket sksk
