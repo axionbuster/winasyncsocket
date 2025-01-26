@@ -78,7 +78,6 @@ import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Functor
 import Data.IORef
-import Debug.Trace
 import Foreign hiding (void)
 import GHC.Event.Windows
 import Sock
@@ -194,10 +193,17 @@ getailen :: AddrInfo -> IO Int
 getailen (AddrInfo a) = withForeignPtr a do
   fmap (fromIntegral . S.ai_addrlen) . peek
 
--- | connect a socket to an address. the socket must be bound using
--- 'bind' first
+-- | connect an unbound socket to an address
 connect :: Socket -> AddrInfo -> IO ()
-connect (sksk -> l) a =
+connect (sksk -> l) a = do
+  -- binding l is a Microsoft requirement (using ConnectEx extension)
+  S.bind
+    l
+    S.sockaddrin0
+      { S.sin_family = fromIntegral . S.unaddrfamily $ S.AF_INET,
+        S.sin_addr = S.INADDR_ANY,
+        S.sin_port = 0
+      }
   overlapped
     do "connect"
     do handleu l

@@ -15,19 +15,12 @@ client = do
   let ai1 =
         addrinfow0
           { ai_socktype = SOCK_STREAM,
-            ai_protocol = IPPROTO_TCP
-          }
-      ain =
-        sockaddrin0
-          { sin_family = fromIntegral . unaddrfamily $ AF_INET,
-            sin_port = 0,
-            sin_addr = INADDR_ANY
+            ai_protocol = IPPROTO_TCP,
+            ai_family = AF_INET
           }
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
-    traceIO "binding accepting socket"
-    bind sock ain
     traceIO "connecting to server"
     connect sock addr
     hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
