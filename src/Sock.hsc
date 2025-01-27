@@ -15,7 +15,7 @@ Unicode operations are used wherever possible.
 module Sock
   ( -- * Types
     SOCKET(..)
-  , Socket(..)
+  , Socket
   , VTABLE(..)
   , AddrFlag(..)
   , AddrFamily(..)
@@ -79,6 +79,7 @@ module Sock
   , loadvt
   , shutdown
   , closesocket
+  , close
   , acceptex
   , finishaccept
   , sockaddr
@@ -94,25 +95,19 @@ module Sock
   , sockaddrin60
   , sockaddrin6old0
   , sockaddrin
-  -- * Managed sockets
-  , managesocket
-  , close
   ) where
 
 -- frustratingly, formatter 'ormolu' doesn't work.
 
-import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
 import Data.Bits
 import Data.List (unsnoc)
-import Debug.Trace
 import Foreign hiding (void)
 import Foreign.C.String
 import Foreign.C.Types
 import GHC.Event.Windows
 import System.IO.Unsafe
-import System.Mem.Weak
 import System.Win32.Types
 
 -- oh, did you know, there are two distinct Unicode-enabling macros
@@ -222,7 +217,9 @@ newtype SOCKET = SOCKET { unsocket :: WordPtr }
 pattern INVALID_SOCKET :: SOCKET
 pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 
--- raw operations
+-- | type alias for 'SOCKET' (used to mean a /managed socket/, but
+-- automatic resource management has been removed in a very early version)
+type Socket = SOCKET
 
 data WSADATA
 type LPWSADATA = Ptr WSADATA
@@ -461,9 +458,7 @@ socket af ty proto =
         wsasocketw (unaddrfamily af) (unsockettype ty)
                    (unprotocol proto) info grp flags >>= \case
           INVALID_SOCKET -> wsagetlasterror >>= throwsk
-          s -> do
-            traceIO $ "created socket " ++ show s
-            pure s
+          s -> pure s
 
 -- | a socket address (opaque)
 data SockAddr = SockAddr
@@ -737,10 +732,10 @@ foreign import capi unsafe "winsock2.h closesocket"
 -- - depending on the linger structure, may or may not block.
 -- - cannot assume all I/O operations will be ended when it returns.
 -- - system may immediately reuse socket number.
-closesocket :: SOCKET -> IO ()
-closesocket s = mask_ do
-  traceIO $ "closing socket " ++ show s
-  c_closesocket s >>= ok (pure ())
+closesocket, close :: SOCKET -> IO ()
+closesocket s = mask_ do c_closesocket s >>= ok (pure ())
+close = closesocket
+{-# INLINE close #-}
 
 type AcceptEx = SOCKET -> SOCKET -> LPVOID ->
                 DWORD -> DWORD -> DWORD -> LPDWORD -> LPOVERLAPPED ->
@@ -947,40 +942,3 @@ sendmany _ [] _ = pure ()
 sendmany s bs o =
   withArrayLen bs \(fromIntegral -> lu) u -> mask_ do
     wsasend s u lu nullPtr 0 o nullPtr >>= ok do pure ()
-
--- | a managed 'SOCKET'. see: 'managesocket', 'close'
-data Socket = Socket
-  { -- | extract the underlying 'SOCKET' so we can use raw API.
-    -- be careful when using an unmanaged socket
-    sksk :: SOCKET
-    -- mutex for finalization. if locked, it's either closing or has been closed
-  , skok :: MVar ()
-  }
-
-instance Show Socket where
-  show = show . sksk
-
--- | manage a socket so it will be closed when it goes out of scope.
--- uses 'closesocket' without 'shutdown'
-managesocket :: SOCKET -> IO Socket
-managesocket sksk = do
-  skok <- newMVar ()
-  let x = Socket {..}
-  addFinalizer x do
-    -- strictly speaking, on exception, there's no point in unlocking
-    -- the mutex, but i'm just gonna do it
-    mask_ do
-      traceIO $ "finalizing socket " ++ show sksk
-      catch
-        do tryTakeMVar skok >>= maybe (pure ()) do
-             const do closesocket sksk
-        do -- if finalizer fails, yell in the console
-           \(e :: SocketError) -> putMVar skok () *>
-             traceIO do displayException e
-  pure x
-
--- | close a managed socket
-close :: Socket -> IO ()
-close Socket {..} =
-  (tryTakeMVar skok >>= maybe (pure ()) \_ -> closesocket sksk)
-    `onException` putMVar skok ()

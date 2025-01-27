@@ -12,7 +12,8 @@ module TCPIP
     S.AddrFamily (..),
     S.Protocol (..),
     ADDRINFOW (..),
-    Socket (..),
+    S.SOCKET (..),
+    S.Socket, -- type alias of S.SOCKET
     SocketError (..),
     UnknownError (..),
     ShutdownHow (..),
@@ -85,10 +86,8 @@ import Sock
   ( ADDRINFOW (..),
     AddrInfo (..),
     ShutdownHow (..),
-    Socket (..),
     SocketError (..),
     close,
-    sksk,
     pattern SD_BOTH,
     pattern SD_RECEIVE,
     pattern SD_SEND,
@@ -96,7 +95,6 @@ import Sock
 import Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
-import Debug.Trace
 
 -- global virtual function table for certain socket extension methods.
 -- this requirement is imposed by Windows Sockets API
@@ -118,16 +116,15 @@ globalvtable = unsafePerformIO do
 startup :: IO ()
 startup = void $ readIORef globalvtable
 
--- | create a new managed socket with given address family, socket type,
--- and protocol
-socket :: S.AddrFamily -> S.SocketType -> S.Protocol -> IO Socket
-socket a b c = mask_ do
-  s <- S.socket a b c
-  t <- S.managesocket s
+-- | create a new socket with given address family, socket type, and protocol
+socket :: S.AddrFamily -> S.SocketType -> S.Protocol -> IO S.SOCKET
+socket af ty proto = mask_ do
+  s <- S.socket af ty proto
+  -- hook it up with GHC's IO manager
   associateHandle' (handleu s)
-  pure t
+  pure s
 
--- turn an unmanaged socket into a HANDLE
+-- turn a socket into a HANDLE
 handleu :: S.SOCKET -> HANDLE
 handleu (S.SOCKET s) = wordPtrToPtr s
 
@@ -168,7 +165,8 @@ overlapped l a b c d =
     b' o = do
       v <- readIORef globalvtable
       catch
-        do b v o >>= \case
+        do
+          b v o >>= \case
             S.OK -> CbDone <$> getOverlappedResult a o False -- no wait
             S.PENDING -> pure CbPending
         do pure . CbError . fromIntegral . getskerr
@@ -182,19 +180,15 @@ throw1 (Just e) = throwIO $ SocketError $ fromIntegral e
 throw1 Nothing = throwunknown
 
 -- | accept a new connection
-accept :: Socket -> IO Socket
-accept (sksk -> l) = do
-  -- allocate a new socket with the same protocol info
-  traceIO "getprotocolinfo"
+accept :: S.SOCKET -> IO S.SOCKET
+accept l = do
   i <- S.getprotocolinfo l
-  traceIO "socket"
   a <- socket i.iAddressFamily i.iSocketType i.iProtocol
-  traceIO "overlapped"
   overlapped
     do "accept"
     do handleu l
-    do \v -> S.acceptex v l (sksk a)
-    do const $ S.finishaccept l (sksk a)
+    do \v -> S.acceptex v l a
+    do const $ S.finishaccept l a
     do const (pure a)
 
 -- get the ai_addrlen from an AddrInfo pointer
@@ -203,8 +197,8 @@ getailen (AddrInfo a) = withForeignPtr a do
   fmap (fromIntegral . S.ai_addrlen) . peek
 
 -- | connect an unbound socket to an address
-connect :: Socket -> AddrInfo -> IO ()
-connect (sksk -> l) a = do
+connect :: S.SOCKET -> AddrInfo -> IO ()
+connect l a = do
   -- binding l is a Microsoft requirement (using ConnectEx extension)
   S.bind
     l
@@ -221,16 +215,15 @@ connect (sksk -> l) a = do
     do const (pure ())
 
 -- | receive a buffer; corresponds to @recvBuf@ from package "network"
-recvbuf, recvBuf :: Socket -> Ptr a -> Int -> IO Int
-recvbuf (sksk -> l) b c =
+recvbuf, recvBuf :: S.SOCKET -> Ptr a -> Int -> IO Int
+recvbuf l b c =
   overlapped
     do "recvbuf"
     do handleu l
     -- recvbuf, sendbuf: not using one of the extension methods
-    do \_ o -> do
-        traceIO "S.recv"
+    do
+      \_ o -> do
         S.recv l (S.WSABUF (fromIntegral c) (castPtr b)) o
-        traceIO "past S.recv"
         pure S.PENDING
     do pure
     do pure . fromIntegral
@@ -238,12 +231,13 @@ recvBuf = recvbuf
 {-# INLINE recvBuf #-}
 
 -- | send a buffer; corresponds to @sendBuf@ from package "network"
-sendbuf, sendBuf :: Socket -> Ptr a -> Int -> IO Int
-sendbuf (sksk -> l) b c =
+sendbuf, sendBuf :: S.SOCKET -> Ptr a -> Int -> IO Int
+sendbuf l b c =
   overlapped
     do "sendbuf"
     do handleu l
-    do \_ o -> do
+    do
+      \_ o -> do
         S.send l (S.WSABUF (fromIntegral c) (castPtr b)) o
         pure S.PENDING
     do pure
@@ -254,35 +248,40 @@ sendBuf = sendbuf
 -- TODO: Sock also has recvmany and sendmany for vectored I/O
 
 -- | receive up to a certain number of bytes
-recv :: Socket -> Int -> IO ByteString
+recv :: S.SOCKET -> Int -> IO ByteString
 recv s a = createAndTrim a \p -> recvbuf s p a
 
 -- | attempt to send the 'ByteString' and measure how many bytes were sent
-send :: Socket -> ByteString -> IO Int
+send :: S.SOCKET -> ByteString -> IO Int
 send s a = unsafeUseAsCStringLen a $ uncurry $ sendbuf s
 
 -- | shut down a socket
-shutdown :: Socket -> ShutdownHow -> IO ()
-shutdown (sksk -> s) = S.shutdown s
+shutdown :: S.SOCKET -> ShutdownHow -> IO ()
+shutdown s = S.shutdown s
 
 -- | bind a socket to an address
-bind :: Socket -> S.SockAddrIn -> IO ()
-bind (sksk -> s) = S.bind s
+bind :: S.SOCKET -> S.SockAddrIn -> IO ()
+bind s = S.bind s
 
 -- | mark the socket as /listening/ for new connections
-listen :: Socket -> IO ()
-listen (sksk -> s) = S.listen s
+listen :: S.SOCKET -> IO ()
+listen s = S.listen s
 
 -- | set a socket option (@DWORD@)
-setsockopt_dword :: Socket -> S.SockoptLevel -> S.SockoptName -> DWORD -> IO ()
-setsockopt_dword (sksk -> s) = S.setsockopt_dword s
+setsockopt_dword ::
+  S.SOCKET ->
+  S.SockoptLevel ->
+  S.SockoptName ->
+  DWORD ->
+  IO ()
+setsockopt_dword s = S.setsockopt_dword s
 
 -- | term equal to 'S.ADDRINFOW0' (useful for record updates)
 addrinfow0 :: ADDRINFOW
 addrinfow0 = S.ADDRINFOW0
 
 -- | attempt to send all of the given 'ByteString'
-sendall, sendAll :: Socket -> ByteString -> IO ()
+sendall, sendAll :: S.SOCKET -> ByteString -> IO ()
 sendall s b = send s b >>= \c -> when (c < B.length b) $ sendall s (B.drop c b)
 sendAll = sendall
 {-# INLINE sendAll #-}

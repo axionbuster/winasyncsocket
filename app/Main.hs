@@ -10,14 +10,17 @@ import System.Environment
 import System.IO
 import TCPIP
 
+withColor :: String -> String -> String
+withColor color text = color ++ text ++ "\ESC[0m"
+
 server :: IO ()
 server = do
   hPutStrLn stderr "starting server on localhost:50123"
-  let ai1 = 
+  let ai1 =
         addrinfow0
-          { ai_socktype = SOCK_STREAM
-          , ai_protocol = IPPROTO_TCP
-          , ai_family = AF_INET
+          { ai_socktype = SOCK_STREAM,
+            ai_protocol = IPPROTO_TCP,
+            ai_family = AF_INET
           }
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
@@ -28,20 +31,23 @@ server = do
     forever do
       bracket
         do accept sock
-        do close
-        do \c -> do
-            hPutStrLn stderr "client connected"
+        do \c -> traceIO (withColor "\ESC[31m" "bye!") *> close c
+        do
+          \c -> do
+            hPutStrLn stderr (withColor "\ESC[32m" "client connected")
             handle (\(e :: IOException) -> hPrint stderr e) do
               -- Echo loop
               fix \loop -> do
                 traceIO "waiting for message"
                 msg <- recv c 1024
                 traceIO "message received"
-                when (C.length msg > 0) do
-                  traceIO "sending message back"
-                  sendall c msg
-                  traceIO "message sent"
-                  loop
+                if C.length msg > 0
+                  then do
+                    traceIO "sending message back"
+                    sendall c msg
+                    traceIO "message sent"
+                    loop
+                  else pure ()
 
 client :: IO ()
 client = do
