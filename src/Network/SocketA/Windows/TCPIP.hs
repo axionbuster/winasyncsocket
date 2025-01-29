@@ -5,7 +5,7 @@
 -- License: BSD-3-Clause
 --
 -- This module integrates asynchronous TCP\/IP primitives with RTS.
-module TCPIP
+module Network.SocketA.Windows.TCPIP
   ( -- * Types
     AddrInfo (..),
     S.AddrFlag (..),
@@ -82,7 +82,7 @@ import Data.IORef
 import Foreign hiding (void)
 import GHC.Event.Windows
 import GHC.Event.Windows.FFI
-import Sock
+import Network.SocketA.Windows.Sock
   ( ADDRINFOW (..),
     AddrInfo (..),
     ShutdownHow (..),
@@ -92,7 +92,7 @@ import Sock
     pattern SD_RECEIVE,
     pattern SD_SEND,
   )
-import Sock qualified as S
+import Network.SocketA.Windows.Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
 

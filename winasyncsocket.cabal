@@ -6,7 +6,7 @@ cabal-version: 2.2
 
 name:           winasyncsocket
 version:        0.1.0.0
-synopsis:       Windows Asynchronous Socket Programming in Haskell
+synopsis:       Asynchronous Socket Programming in Haskell
 description:    Please see the README on GitHub at <https://github.com/githubuser/winasyncsocket#readme>
 category:       Network, System
 homepage:       https://github.com/githubuser/winasyncsocket#readme
@@ -27,9 +27,6 @@ source-repository head
   location: https://github.com/githubuser/winasyncsocket
 
 library
-  exposed-modules:
-      Sock
-      TCPIP
   other-modules:
       Paths_winasyncsocket
   autogen-modules:
@@ -52,24 +49,30 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   include-dirs:
       src
-  c-sources:
-      src/ax.c
   build-tools:
       hsc2hs
   build-depends:
-      Win32 >=2.13.4 && <2.14
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , bytestring >=0.12.1 && <0.13
   default-language: GHC2021
+  if os(windows)
+    exposed-modules:
+        Network.SocketA.Windows.Sock
+        Network.SocketA.Windows.TCPIP
+    c-sources:
+        src/Network/SocketA/Windows/ax.c
+    build-depends:
+        Win32 >=2.13.4 && <2.14
+  if os(linux)
+    exposed-modules:
+        Network.SocketA.LinuxEPoll.Sock
+        Network.SocketA.LinuxEPoll.TCPIP
 
 executable winasyncsocket-exe
-  main-is: Main.hs
   other-modules:
       Paths_winasyncsocket
   autogen-modules:
       Paths_winasyncsocket
-  hs-source-dirs:
-      app
   default-extensions:
       BlockArguments
       DeriveAnyClass
@@ -83,10 +86,15 @@ executable winasyncsocket-exe
       PatternSynonyms
       RecordWildCards
       ViewPatterns
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N -with-rtsopts=--io-manager=native
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      Win32 >=2.13.4 && <2.14
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , bytestring >=0.12.1 && <0.13
-    , winasyncsocket
   default-language: GHC2021
+  if os(linux)
+    main-is: Main.hs
+    hs-source-dirs:
+        app/linux
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        winasyncsocket

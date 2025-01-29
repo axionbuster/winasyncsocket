@@ -12,7 +12,7 @@ Portions of this code are interpreted from Tamar Christina's code.
 
 Unicode operations are used wherever possible.
 -}
-module Sock
+module Network.SocketA.Windows.Sock
   ( -- * Types
     SOCKET(..)
   , Socket

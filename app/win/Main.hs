@@ -8,7 +8,7 @@ import Data.ByteString.Char8 qualified as C
 import Debug.Trace
 import System.Environment
 import System.IO
-import TCPIP
+import Network.SocketA.Windows.TCPIP
 
 withColor :: String -> String -> String
 withColor color text = color ++ text ++ "\ESC[0m"
