@@ -62,6 +62,8 @@ library:
         - Network.SocketA.Windows.TCPIP
       c-sources:
         - src/Network/SocketA/Windows/ax.c
+      include-dirs:
+        - src/Network/SocketA/Windows
       dependencies:
         - Win32 >= 2.13.4 && < 2.14
     - condition: os(linux)
@@ -82,7 +84,6 @@ executables:
         - -with-rtsopts=--io-manager=native
         dependencies:
         - winasyncsocket
-    when:
       - condition: os(linux)
         main:                Main.hs
         source-dirs:         app/linux
