@@ -70,6 +70,8 @@ library:
       exposed-modules:
         - Network.SocketA.LinuxEPoll.Sock
         - Network.SocketA.LinuxEPoll.TCPIP
+      include-dirs:
+        - src/Network/SocketA/LinuxEPoll
 
 executables:
   winasyncsocket-exe:
