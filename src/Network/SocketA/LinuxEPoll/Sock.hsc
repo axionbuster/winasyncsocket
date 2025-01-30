@@ -1,8 +1,11 @@
 module Network.SocketA.LinuxEPoll.Sock where
 
 import Control.Exception
+import Control.Monad
+import Control.Monad.Fix
 import Data.Bits
 import Data.Data
+import Data.Functor
 import Foreign hiding (void)
 import Foreign.C.ConstPtr
 import Foreign.C.Error
@@ -15,6 +18,10 @@ import System.IO.Unsafe
 
 -- | socket (POSIX/Linux)
 newtype Socket = Socket { unsocket :: CInt }
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
+-- | a kind of socket error
+newtype SocketError = SocketError { getskerr :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
 
@@ -35,15 +42,19 @@ newtype AddrFlag = AddrFlag { unaddrflag :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
 
+-- | zero address family
 addrfamily0 :: AddrFamily
 addrfamily0 = AddrFamily 0
 
+-- | zero socket type
 sockettype0 :: SocketType
 sockettype0 = SocketType 0
 
+-- | zero protocol
 protocol0 :: Protocol
 protocol0 = Protocol 0
 
+-- | zero address flag
 addrflag0 :: AddrFlag
 addrflag0 = AddrFlag 0
 
@@ -56,6 +67,10 @@ newtype RN1 = RN1 { unrn1 :: CInt }
 okn1 :: String -> (RN1 -> IO a) -> RN1 -> IO a
 okn1 m _ (-1) = throwErrno m
 okn1 _ a n = a n
+
+-- okn1, but return ()
+okn1_ :: String -> RN1 -> IO ()
+okn1_ m n = okn1 m (const (pure ())) n
 
 foreign import capi unsafe "sys/socket.h socket"
   c_socket :: AddrFamily -> SocketType -> Protocol -> IO RN1
@@ -71,7 +86,9 @@ socket d s p =
 pattern SOCK_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM :: SocketType
 -- | non-blocking socket flag
 pattern SOCK_NONBLOCK = SocketType #{const SOCK_NONBLOCK}
+-- | close-on-exec socket flag
 pattern SOCK_CLOEXEC = SocketType #{const SOCK_CLOEXEC}
+-- | stream socket
 pattern SOCK_STREAM = SocketType #{const SOCK_STREAM}
 
 pattern AF_INET, AF_INET6 :: AddrFamily
@@ -111,7 +128,51 @@ type Socklen = #{type socklen_t}
 -- | socket address
 --
 -- unlike on Windows, this data structure is opaque, and not exposed to users
-data SockAddr deriving (Eq, Show)
+--
+-- it also does not /truly/ implement 'Storable'
+-- because it uses a disjunctive type
+-- that's only known by the programmer. see 'pokesa', 'peekin'
+data SockAddr
+  = SockAddrIn
+    { sin_family :: SaFamilyT
+    , sin_port :: InPortT
+    , sin_addr :: InAddr
+    }
+  deriving (Eq, Show)
+
+newtype InAddr = InAddr { s_addr :: InAddrT }
+  deriving newtype (Eq, Storable)
+  deriving stock (Show)
+
+type InAddrT = #{type in_addr_t}
+
+-- | members 'sizeOf' and 'peek' will throw an error when called
+instance Storable SockAddr where
+  sizeOf = error "sizeOf SockAddr called"
+  alignment _ = #{alignment struct sockaddr_storage}
+  peek = error "peek SockAddr called"
+  poke = pokesa
+
+-- | type of 'sin_family'
+type SaFamilyT = #{type sa_family_t}
+
+-- | type of 'sin_port'
+type InPortT = #{type in_port_t}
+
+-- | peek a @struct sockaddr_in@ data structure
+peekin :: Ptr SockAddr -> IO SockAddr
+peekin p =
+  SockAddrIn
+    <$> #{peek struct sockaddr_in, sin_family} p
+    <*> #{peek struct sockaddr_in, sin_port} p
+    <*> #{peek struct sockaddr_in, sin_addr} p
+
+-- | poke a 'SockAddr'
+pokesa :: Ptr SockAddr -> SockAddr -> IO ()
+pokesa p SockAddrIn {..} = do
+  #{poke struct sockaddr_in, sin_family} p sin_family
+  #{poke struct sockaddr_in, sin_port} p sin_port
+  #{poke struct sockaddr_in, sin_addr} p sin_addr
 
 -- | address information
 --
@@ -125,7 +186,7 @@ data AddrInfo_ = AddrInfo_
   , ai_addrlen :: Socklen
   , ai_addr :: Ptr SockAddr
   , ai_canonname :: CString
-  , ai_next :: Ptr SockAddr
+  , ai_next :: Ptr AddrInfo_
   } deriving (Eq, Show)
 
 instance Storable AddrInfo_ where
@@ -175,10 +236,81 @@ addrinfo0 = AddrInfo_
 
 foreign import capi unsafe "netdb.h getaddrinfo"
   c_getaddrinfo :: ConstPtr CChar -> ConstPtr CChar -> ConstPtr AddrInfo_ ->
-                   Ptr AddrInfo_ -> GetAddrInfoError
+                   Ptr (Ptr AddrInfo_) -> IO GetAddrInfoError
 
 foreign import capi unsafe "netdb.h &freeaddrinfo"
   c_freeaddrinfo :: FunPtr (Ptr AddrInfo_ -> IO ())
 
 foreign import capi unsafe "netdb.h gai_strerror"
   c_gai_strerror :: GetAddrInfoError -> ConstPtr CChar
+
+-- | a managed 'AddrInfo_' list (head only); never NULL
+type AddrInfo = ForeignPtr AddrInfo_
+
+-- | get address information
+--
+-- if it fails, it throws a 'GetAddrInfoError', not a 'SocketError'
+getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO (ForeignPtr AddrInfo_)
+getaddrinfo node service hints =
+  withCString node \(ConstPtr -> n) ->
+  withCString service \(ConstPtr -> s) ->
+  alloca \h -> do
+    i <- case hints of
+      Just j -> poke h j $> h
+      Nothing -> pure nullPtr
+    alloca \r -> mask_ do
+      c_getaddrinfo n s (ConstPtr i) r >>= \case
+          GetAddrInfoError 0 -> peek r >>= newForeignPtr c_freeaddrinfo
+          e -> throwIO e
+
+foreign import capi unsafe "unistd.h close"
+  c_close :: Socket -> IO RN1
+
+foreign import capi unsafe "sys/socket.h bind"
+  c_bind :: Socket -> ConstPtr SockAddr -> Socklen -> IO RN1
+
+-- | close a socket
+close :: Socket -> IO ()
+close = c_close >=> okn1_ "close"
+
+-- | bind a socket to an address
+bind :: Socket -> SockAddr -> IO ()
+bind s a =
+  alloca \a' -> do
+    poke a' a
+    c_bind s (ConstPtr a') #{size struct sockaddr_storage} >>= okn1_ "bind"
+
+-- | try to bind to the linked list of addresses using the same socket
+bindfirst :: Socket -> AddrInfo -> IO ()
+bindfirst s l =
+  withForeignPtr l \h ->
+  peek h >>= fix \r h' ->
+  c_bind s (ConstPtr h'.ai_addr) h'.ai_addrlen >>= \case
+    0 -> pure ()
+    _ -> case h'.ai_next of
+      p | p == nullPtr -> throwErrno "bindfirst"
+      p -> peek p >>= r
+
+-- | traverse a linked list of addresses and try to create a socket with the
+-- first good address (and with the appropriate settings)
+bindfirst2 :: AddrInfo -> IO Socket
+bindfirst2 l =
+  withForeignPtr l \h ->
+  peek h >>= fix \r h' ->
+  c_socket h'.ai_family h'.ai_socktype h'.ai_protocol >>= \case
+    (-1) -> case h'.ai_next of
+      p | p == nullPtr -> throwErrno "bindfirst2 (socket)"
+      p -> peek p >>= r
+    (Socket . unrn1 -> s) -> mask \restore ->
+      c_bind s (ConstPtr h'.ai_addr) h'.ai_addrlen >>= \case
+        0 -> restore $ pure s
+        _ ->
+          c_close s >>= \case
+            0 ->
+              restore case h'.ai_next of
+                p | p == nullPtr -> throwErrno "bindfirst2 (bind)"
+                p -> peek p >>= r
+            _ -> restore do
+              -- if closing a socket fails, stop iterating;
+              -- something serious might be going on
+              throwErrno "bindfirst2 (bind; close)"
