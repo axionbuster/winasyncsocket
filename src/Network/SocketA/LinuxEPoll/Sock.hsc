@@ -57,7 +57,7 @@ okn1 :: String -> (RN1 -> IO a) -> RN1 -> IO a
 okn1 m _ (-1) = throwErrno m
 okn1 _ a n = a n
 
-foreign import capi "sys/socket.h socket"
+foreign import capi unsafe "sys/socket.h socket"
   c_socket :: AddrFamily -> SocketType -> Protocol -> IO RN1
 
 -- | create a non-blocking socket. the non-blocking flag will be
@@ -84,7 +84,7 @@ newtype GetAddrInfoError = GetAddrInfoError { ungetaddrinfoerror :: CInt }
   deriving newtype (Eq)
   deriving stock (Show, Typeable)
 
-foreign import capi "fe.h hs_strerror_r1"
+foreign import capi unsafe "fe.h hs_strerror_r1"
   hs_strerror_r1 :: CInt -> CString -> CSize -> IO CInt
 
 -- | calls @strerror_r@ to find the error message
@@ -173,12 +173,12 @@ addrinfo0 = AddrInfo_
   , ai_next = nullPtr
   }
 
-foreign import capi "sys/socket.h getaddrinfo"
+foreign import capi unsafe "netdb.h getaddrinfo"
   c_getaddrinfo :: ConstPtr CChar -> ConstPtr CChar -> ConstPtr AddrInfo_ ->
                    Ptr AddrInfo_ -> GetAddrInfoError
 
-foreign import capi "sys/socket.h freeaddrinfo"
-  c_freeaddrinfo :: Ptr AddrInfo_ -> IO ()
+foreign import capi unsafe "netdb.h &freeaddrinfo"
+  c_freeaddrinfo :: FunPtr (Ptr AddrInfo_ -> IO ())
 
-foreign import capi "sys/socket.h gai_strerror"
+foreign import capi unsafe "netdb.h gai_strerror"
   c_gai_strerror :: GetAddrInfoError -> ConstPtr CChar
