@@ -72,6 +72,12 @@ okn1 _ a n = a n
 okn1_ :: String -> RN1 -> IO ()
 okn1_ m n = okn1 m (const (pure ())) n
 
+-- is the error blocking?
+blocking :: IO Bool
+blocking = getErrno <&> \case
+  e | e == #{const EAGAIN} || e == #{const EWOULDBLOCK} -> True
+  _ -> False
+
 foreign import capi unsafe "sys/socket.h socket"
   c_socket :: AddrFamily -> SocketType -> Protocol -> IO RN1
 
@@ -146,9 +152,11 @@ newtype InAddr = InAddr { s_addr :: InAddrT }
 
 type InAddrT = #{type in_addr_t}
 
--- | members 'sizeOf' and 'peek' will throw an error when called
+-- | - member 'peek' will throw an error when called
+-- - 'sizeOf' is that of @struct sockaddr_storage@; beware when doing
+-- array operations
 instance Storable SockAddr where
-  sizeOf = error "sizeOf SockAddr called"
+  sizeOf = #{size struct sockaddr_storage}
   alignment _ = #{alignment struct sockaddr_storage}
   peek = error "peek SockAddr called"
   poke = pokesa
@@ -314,3 +322,34 @@ bindfirst2 l =
               -- if closing a socket fails, stop iterating;
               -- something serious might be going on
               throwErrno "bindfirst2 (bind; close)"
+
+foreign import capi unsafe "sys/socket.h listen"
+  c_listen :: Socket -> CInt -> IO RN1
+
+-- | mark a socket as passive (listening); it will accept incoming requests
+-- using 'accept'.
+listen ::
+  -- | the socket
+  Socket ->
+  -- | backlog (maximum length of wait queue)
+  Int ->
+  IO ()
+listen s (fromIntegral -> i) = c_listen s i >>= okn1_ "listen"
+
+-- accept4 is Linux API; saves a call to fcntl to mark the socket nonblocking
+foreign import capi unsafe "sys/socket.h accept4"
+  -- 2nd, 3rd: restrict, nullable
+  -- only accepted flags are SOCK_NONBLOCK and SOCK_CLOEXEC
+  c_accept4 :: Socket -> Ptr SockAddr -> Ptr Socklen -> SocketType -> IO RN1
+
+-- | nonblocking accept. 'Nothing' means we must wait; 'Just' @a@ means
+-- @a@ was returned
+accept :: Socket -> SockAddr -> IO (Maybe Socket)
+accept s a =
+  alloca \sa -> do
+    poke sa a
+    alloca \sl -> do
+      poke sl (sizeOF a)
+      -- FIXME: must retrieve from underlying socket
+      let st = SOCK_NONBLOCK .|. SOCK_CLOEXEC
+      
