@@ -1,27 +1,28 @@
-module Network.SocketA.LinuxEPoll.TCPIP (
-  -- * Types
-  S.Socket,
-  S.AddrFamily,
-  S.SocketType,
-  S.Protocol,
-  S.AddrInfo_,
-  S.AddrInfo,
-  -- * Functions
-  S.socket,
-  S.getaddrinfo,
-  close,
-  S.bind,
-  S.bindfirst,
-  S.bindfirst2,
-  S.listen,
-  accept,
+module Network.SocketA.LinuxEPoll.TCPIP
+  ( -- * Types
+    S.Socket,
+    S.AddrFamily,
+    S.SocketType,
+    S.Protocol,
+    S.AddrInfo_,
+    S.AddrInfo,
+
+    -- * Functions
+    S.socket,
+    S.getaddrinfo,
+    close,
+    S.bind,
+    S.bindfirst,
+    S.bindfirst2,
+    S.listen,
+    accept,
   )
-  where
+where
 
 import Control.Concurrent
 import GHC.Event
-import System.Posix.Types
 import Network.SocketA.LinuxEPoll.Sock qualified as S
+import System.Posix.Types
 
 -- here Fd is a newtype over a CInt; distinct from FD type from GHC.IO.FD
 
