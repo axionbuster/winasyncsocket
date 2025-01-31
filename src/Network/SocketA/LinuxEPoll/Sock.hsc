@@ -25,6 +25,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , SockAddr(..)
   , InAddr(..)
   , AddrInfo
+  , AddrInfo_(..)
   , ShutdownHow(..)
     -- * Patterns
   , pattern SOCK_NONBLOCK
