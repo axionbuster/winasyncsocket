@@ -38,10 +38,10 @@ evman =
 -- - for FdKey, only the keyFd :: !Fd field is exposed; we can't make
 -- our own FdKey
 -- - Event is a bit set: 0 = nothing; read, write, (close)
-regfd :: IOCallback -> Event -> Fd -> IO FdKey
-regfd c e f = do
+regfd :: IOCallback -> Event -> Lifetime -> Fd -> IO FdKey
+regfd c e l f = do
   m <- evman
-  registerFd m c f e MultiShot
+  registerFd m c f e l
 
 -- unregister an event
 unregfd :: FdKey -> IO ()
@@ -73,5 +73,5 @@ accept s a = do
       g h = S.accept (fd2sk h.keyFd) a >>= putMVar w
   -- FIXME: i really don't know what to do with the unregisteration
   -- cookie returned by regfd.
-  void $ regfd f evtRead (sk2fd s) -- evtRead = EPOLLIN
+  void $ regfd f evtRead OneShot (sk2fd s) -- evtRead = EPOLLIN
   takeMVar w
