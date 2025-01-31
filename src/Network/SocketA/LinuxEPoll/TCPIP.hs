@@ -19,7 +19,6 @@ module Network.SocketA.LinuxEPoll.TCPIP (
   where
 
 import Control.Concurrent
-import Control.Monad
 import GHC.Event
 import System.Posix.Types
 import Network.SocketA.LinuxEPoll.Sock qualified as S
@@ -71,7 +70,5 @@ accept s a = do
   w <- newEmptyMVar
   let f h _ = g h
       g h = S.accept (fd2sk h.keyFd) a >>= putMVar w
-  -- FIXME: i really don't know what to do with the unregisteration
-  -- cookie returned by regfd.
-  void $ regfd f evtRead OneShot (sk2fd s) -- evtRead = EPOLLIN
-  takeMVar w
+  e <- regfd f evtRead OneShot (sk2fd s) -- evtRead = EPOLLIN
+  takeMVar w <* unregfd e
