@@ -16,7 +16,6 @@ All sockets are created in non-blocking mode as this is required for use with ep
 module Network.SocketA.LinuxEPoll.Sock
   ( -- * Types
     Socket(..)
-  , SocketError(..)
   , AddrFamily(..)
   , SocketType(..)
   , Protocol(..)
@@ -84,12 +83,6 @@ import System.IO.Unsafe
 newtype Socket = Socket { unsocket :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
--- | Socket error type containing the error number from socket operations.
--- Used for low-level error handling.
-newtype SocketError = SocketError { getskerr :: CInt }
-  deriving newtype (Eq, Storable)
-  deriving stock (Show)
-
 -- | Socket address family\/domain identifier (AF_*)
 newtype AddrFamily = AddrFamily { undomain :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
@@ -173,23 +166,12 @@ newtype GetAddrInfoError = GetAddrInfoError { ungetaddrinfoerror :: CInt }
   deriving newtype (Eq)
   deriving stock (Show, Typeable)
 
-foreign import capi unsafe "fe.h hs_strerror_r1"
-  hs_strerror_r1 :: CInt -> CString -> CSize -> IO CInt
-
--- calls @strerror_r@ to find the error message
-errno2string :: Errno -> IO String
-errno2string (Errno e) =
-  allocaBytes 256 \buf ->
-    hs_strerror_r1 e buf 256 >>= \case
-      0 -> peekCString buf
-      _ -> pure "errno2string: strerror_r failed"
-
 -- | calls @gai_strerror@ to find the error message; if referred to errno,
 -- finds the message for errno
 instance Exception GetAddrInfoError where
   displayException f@(GetAddrInfoError e) = unsafePerformIO
     case e of
-      #{const EAI_SYSTEM} -> errno2string =<< getErrno
+      #{const EAI_SYSTEM} -> pure "EAI_SYSTEM"
       _ -> do
         let ConstPtr a = c_gai_strerror f
         peekCString a
@@ -321,7 +303,7 @@ type AddrInfo = ForeignPtr AddrInfo_
 -- | Lookup network addresses. This is a high-level wrapper around
 -- the @getaddrinfo(3)@ system call.
 --
--- if it fails, it throws a 'GetAddrInfoError', not a 'SocketError'
+-- if it fails, it throws a 'GetAddrInfoError' or 'IOError'
 getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO (ForeignPtr AddrInfo_)
 getaddrinfo node service hints =
   withCString node \(ConstPtr -> n) ->
@@ -333,6 +315,7 @@ getaddrinfo node service hints =
     alloca \r -> mask_ do
       c_getaddrinfo n s (ConstPtr i) r >>= \case
           GetAddrInfoError 0 -> peek r >>= newForeignPtr c_freeaddrinfo
+          GetAddrInfoError (#{const EAI_SYSTEM}) -> throwErrno "getaddrinfo"
           e -> throwIO e
 
 foreign import capi unsafe "unistd.h close"
