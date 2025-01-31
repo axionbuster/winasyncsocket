@@ -78,29 +78,30 @@ import System.IO.Unsafe
 #include <netdb.h>
 #include <sys/socket.h>
 
--- | A socket handle on Linux\/POSIX systems. This is a thin wrapper around
--- a file descriptor (represented as 'CInt').
+-- | A socket handle for Linux\/POSIX systems, wrapping a file descriptor.
+-- All sockets are created in non-blocking mode by default.
 newtype Socket = Socket { unsocket :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
--- | Socket error type, wrapping the error number returned by socket operations.
+-- | Socket error type containing the error number from socket operations.
+-- Used for low-level error handling.
 newtype SocketError = SocketError { getskerr :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
 
--- | socket address family\/domain
+-- | Socket address family\/domain identifier (AF_*)
 newtype AddrFamily = AddrFamily { undomain :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
--- | socket type\/configuration
+-- | Socket type identifier (SOCK_*)
 newtype SocketType = SocketType { unsockettype :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
--- | socket protocol
+-- | Protocol identifier (IPPROTO_*)
 newtype Protocol = Protocol { unprotocol :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
--- | address flag
+-- | Address information flags (AI_*)
 newtype AddrFlag = AddrFlag { unaddrflag :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
@@ -144,10 +145,10 @@ blocking = getErrno <&> \case
 foreign import capi unsafe "sys/socket.h socket"
   c_socket :: AddrFamily -> SocketType -> Protocol -> IO RN1
 
--- | Create a non-blocking socket. The non-blocking flag will be
--- unconditionally set because it is required for epoll operation.
---
--- This is the primary way to create a new socket.
+-- | Create a new non-blocking socket.
+-- 
+-- The socket is always created in non-blocking mode as required for epoll.
+-- May throw 'GetAddrInfoError' on failure.
 socket :: AddrFamily -> SocketType -> Protocol -> IO Socket
 socket d s p =
   c_socket d (s .|. SOCK_NONBLOCK) p
@@ -165,7 +166,7 @@ pattern AF_INET, AF_INET6 :: AddrFamily
 -- | IPv4
 pattern AF_INET = AddrFamily #{const AF_INET}
 -- | IPv6
-pattern AF_INET6 = AddrFamily #{const AF_INET6}
+pattern AF_INET6 = AddrFamily #{const AF_INET}
 
 newtype GetAddrInfoError = GetAddrInfoError { ungetaddrinfoerror :: CInt }
   deriving newtype (Eq)
@@ -195,13 +196,8 @@ instance Exception GetAddrInfoError where
 -- | type of 'ai_addrlen'
 type Socklen = #{type socklen_t}
 
--- | socket address
---
--- unlike on Windows, this data structure is opaque, and not exposed to users
---
--- it also does not /truly/ implement 'Storable'
--- because it uses a disjunctive type
--- that's only known by the programmer. see 'pokesa', 'peekin'
+-- | Socket address structure for IPv4.
+-- This implementation is opaque and managed through 'pokesa' and 'peekin'.
 data SockAddr
   = SockAddrIn
     { sin_family :: SaFamilyT
@@ -344,16 +340,19 @@ foreign import capi unsafe "unistd.h close"
 foreign import capi unsafe "sys/socket.h bind"
   c_bind :: Socket -> ConstPtr SockAddr -> Socklen -> IO RN1
 
--- | Close a socket file descriptor. This releases system resources
--- associated with the socket.
+-- | Close a socket, releasing all associated system resources.
+-- 
+-- This operation is immediate and cannot be undone.
 close :: Socket -> IO ()
 close = c_close >=> okn1_ "close"
 
 foreign import capi unsafe "sys/socket.h shutdown"
   c_shutdown :: Socket -> ShutdownHow -> IO RN1
 
--- | Shut down part of a full-duplex connection.
--- Unlike 'close', this does not release socket resources.
+-- | Partially or fully shut down a socket connection.
+--
+-- Unlike 'close', this does not release system resources.
+-- Use 'SHUT_RD', 'SHUT_WR', or 'SHUT_RDWR' to specify which operations to disable.
 shutdown :: Socket -> ShutdownHow -> IO ()
 shutdown s h = c_shutdown s h >>= okn1_ "shutdown"
 
@@ -371,6 +370,8 @@ pattern SHUT_WR = ShutdownHow #{const SHUT_WR}
 pattern SHUT_RDWR = ShutdownHow #{const SHUT_RDWR}
 
 -- | Bind a socket to a local address.
+--
+-- Required before 'listen' for server sockets.
 bind :: Socket -> SockAddr -> IO ()
 bind s a =
   alloca \a' -> do
@@ -378,7 +379,9 @@ bind s a =
     c_bind s (ConstPtr a') #{size struct sockaddr_storage} >>= okn1_ "bind"
 
 -- | Try to bind to addresses in sequence until one succeeds.
--- Throws an error if none succeed.
+--
+-- Takes a linked list of addresses and attempts to bind until success.
+-- Throws an error if all attempts fail.
 bindfirst :: Socket -> AddrInfo -> IO ()
 bindfirst s l =
   withForeignPtr l \h ->
@@ -389,7 +392,9 @@ bindfirst s l =
       p | p == nullPtr -> throwErrno "bindfirst"
       p -> peek p >>= r
 
--- | Create a socket and bind it to the first successful address.
+-- | Create and bind a socket to the first successful address.
+--
+-- Combines socket creation and binding in one operation.
 -- Returns the newly created and bound socket.
 bindfirst2 :: AddrInfo -> IO Socket
 bindfirst2 l =
@@ -416,8 +421,9 @@ bindfirst2 l =
 foreign import capi unsafe "sys/socket.h listen"
   c_listen :: Socket -> CInt -> IO RN1
 
--- | Mark a socket as passive, indicating it will be used to accept
--- incoming connection requests using 'accept'.
+-- | Mark a socket as passive for accepting incoming connections.
+--
+-- Must be called before using 'accept' on a socket.
 listen ::
   Socket ->  -- ^ The socket to mark as passive
   Int ->     -- ^ Maximum length of the pending connections queue
@@ -427,11 +433,10 @@ listen s (fromIntegral -> i) = c_listen s i >>= okn1_ "listen"
 -- now we begin to have nonblocking async calls...
 
 -- ok unless negative 1; on negative 1, check for blocking. if blocking,
--- return empty; otherwise, return something
-okn1asy :: (Alternative f) =>
-  String -> (RN1 -> IO (f a)) -> RN1 -> IO (f a)
+-- throw empty; otherwise, return
+okn1asy :: String -> (RN1 -> IO a) -> RN1 -> IO a
 okn1asy n _ (-1) = blocking >>= \case
-  True -> pure empty
+  True -> empty
   False -> throwErrno n
 okn1asy _ a e = a e
 
@@ -442,8 +447,10 @@ foreign import capi unsafe "sys/socket.h accept4"
   c_accept4 :: Socket -> Ptr SockAddr -> Ptr Socklen -> SocketType -> IO RN1
 
 -- | Accept a new connection on a listening socket.
--- Returns 'Nothing' if would block, 'Just' 'Socket' if successful.
-accept :: Socket -> SockAddr -> IO (Maybe Socket)
+--
+-- Returns the newly created connected socket.
+-- Throws 'empty' if the operation would block.
+accept :: Socket -> SockAddr -> IO Socket
 accept s a =
   alloca \sa -> do
     poke sa a
@@ -453,13 +460,15 @@ accept s a =
       let st = SOCK_NONBLOCK .|. SOCK_CLOEXEC
       mask_ do
         c_accept4 s sa sl st >>= okn1asy "accept" do
-          pure . Just . Socket . unrn1
+          pure . Socket . unrn1
 
 foreign import capi unsafe "sys/socket.h connect"
   c_connect :: Socket -> ConstPtr SockAddr -> Socklen -> IO RN1
 
 -- | Connect a socket to a remote address.
--- May throw 'empty' before connection is complete due to non-blocking nature.
+--
+-- For non-blocking sockets, may throw 'empty' before the connection completes.
+-- The caller should wait for writability to detect connection completion.
 connect :: Socket -> SockAddr -> IO ()
 connect s a =
   alloca \sa -> do
@@ -486,13 +495,16 @@ foreign import capi unsafe "sys/socket.h recv"
   c_recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO CSsize
 
 -- | Receive data from a socket into a buffer.
--- Returns 'Nothing' if would block, 'Just' @bytes_read@ if successful.
-recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO (Maybe CSsize)
+--
+-- Returns number of bytes read.
+-- Throws 'empty' if it would block.
+-- Returns 0 on end-of-file for stream sockets.
+recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO CSsize
 recv s b l f = c_recv s b l f >>= \case
   -1 -> blocking >>= \case
-    True -> pure Nothing
+    True -> empty
     False -> throwErrno "recv"
-  n -> pure (Just n)
+  n -> pure n
 
 -- | flags for use in 'send'
 newtype SendFlags = SendFlags CInt
@@ -507,10 +519,12 @@ foreign import capi unsafe "sys/socket.h send"
   c_send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO CSsize
 
 -- | Send data from a buffer through a socket.
--- Returns 'Nothing' if would block, 'Just' @bytes_sent@ if successful.
-send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO (Maybe CSsize)
+--
+-- Returns number of bytes sent.
+-- Throws 'empty' if operation would block.
+send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO CSsize
 send s b l f = c_send s b l f >>= \case
   -1 -> blocking >>= \case
-    True -> pure Nothing
+    True -> empty
     False -> throwErrno "send"
-  n -> pure (Just n)
+  n -> pure n
