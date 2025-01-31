@@ -1,5 +1,6 @@
 module Network.SocketA.LinuxEPoll.Sock where
 
+import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
@@ -71,7 +72,7 @@ okn1 _ a n = a n
 
 -- okn1, but return ()
 okn1_ :: String -> RN1 -> IO ()
-okn1_ m n = okn1 m (const (pure ())) n
+okn1_ m = okn1 m (const (pure ()))
 
 -- is the error blocking?
 blocking :: IO Bool
@@ -337,6 +338,24 @@ listen ::
   IO ()
 listen s (fromIntegral -> i) = c_listen s i >>= okn1_ "listen"
 
+-- now we begin to have nonblocking async calls...
+
+-- ok unless negative 1; on negative 1, check for blocking. if blocking,
+-- return empty; otherwise, return something
+okn1asy :: (Alternative f) =>
+  String -> (RN1 -> IO (f a)) -> RN1 -> IO (f a)
+okn1asy n _ (-1) = blocking >>= \case
+  True -> pure empty
+  False -> throwErrno n
+okn1asy _ a e = a e
+
+-- same as 'okn1asy', but do nothing on success
+okn1asy_ :: String -> RN1 -> IO ()
+okn1asy_ n (-1) = blocking >>= \case
+  True -> pure ()
+  False -> throwErrno n
+okn1asy_ _ _ = pure ()
+
 -- accept4 is Linux API; saves a call to fcntl to mark the socket nonblocking
 foreign import capi unsafe "sys/socket.h accept4"
   -- 2nd, 3rd: restrict, nullable
@@ -354,9 +373,16 @@ accept s a =
       -- FIXME: must retrieve from underlying socket
       let st = SOCK_NONBLOCK .|. SOCK_CLOEXEC
       mask_ do
-        c_accept4 s sa sl st >>= \case
-          -1 -> blocking >>= \case
-            True -> pure Nothing
-            False -> throwErrno "accept"
-          (RN1 t) -> pure $ Just $ Socket t
+        c_accept4 s sa sl st >>= okn1asy "accept" do
+          pure . Just . Socket . unrn1
 
+foreign import capi unsafe "sys/socket.h connect"
+  c_connect :: Socket -> ConstPtr SockAddr -> Socklen -> IO RN1
+
+-- | connect a socket to an address
+connect :: Socket -> SockAddr -> IO ()
+connect s a =
+  alloca \sa -> do
+    poke sa a
+    c_connect s (ConstPtr sa) (fromIntegral . sizeOf $ a) >>=
+      okn1asy_ "connect"
