@@ -13,6 +13,7 @@ import Foreign.C.String
 import Foreign.C.Types
 import System.IO.Unsafe
 
+#include <errno.h>
 #include <netdb.h>
 #include <sys/socket.h>
 
@@ -75,7 +76,7 @@ okn1_ m n = okn1 m (const (pure ())) n
 -- is the error blocking?
 blocking :: IO Bool
 blocking = getErrno <&> \case
-  e | e == #{const EAGAIN} || e == #{const EWOULDBLOCK} -> True
+  e | e == eWOULDBLOCK || e == eAGAIN -> True
   _ -> False
 
 foreign import capi unsafe "sys/socket.h socket"
@@ -156,7 +157,7 @@ type InAddrT = #{type in_addr_t}
 -- - 'sizeOf' is that of @struct sockaddr_storage@; beware when doing
 -- array operations
 instance Storable SockAddr where
-  sizeOf = #{size struct sockaddr_storage}
+  sizeOf _ = #{size struct sockaddr_storage}
   alignment _ = #{alignment struct sockaddr_storage}
   peek = error "peek SockAddr called"
   poke = pokesa
@@ -342,14 +343,20 @@ foreign import capi unsafe "sys/socket.h accept4"
   -- only accepted flags are SOCK_NONBLOCK and SOCK_CLOEXEC
   c_accept4 :: Socket -> Ptr SockAddr -> Ptr Socklen -> SocketType -> IO RN1
 
--- | nonblocking accept. 'Nothing' means we must wait; 'Just' @a@ means
+-- | nonblocking accept. 'Nothing' means we must try again; 'Just' @a@ means
 -- @a@ was returned
 accept :: Socket -> SockAddr -> IO (Maybe Socket)
 accept s a =
   alloca \sa -> do
     poke sa a
     alloca \sl -> do
-      poke sl (sizeOF a)
+      poke sl (fromIntegral . sizeOf $ a)
       -- FIXME: must retrieve from underlying socket
       let st = SOCK_NONBLOCK .|. SOCK_CLOEXEC
-      
+      mask_ do
+        c_accept4 s sa sl st >>= \case
+          -1 -> blocking >>= \case
+            True -> pure Nothing
+            False -> throwErrno "accept"
+          (RN1 t) -> pure $ Just $ Socket t
+
