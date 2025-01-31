@@ -26,6 +26,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , AddrInfo
   , AddrInfo_(..)
   , ShutdownHow(..)
+  , AIO(..)
     -- * Patterns
   , pattern SOCK_NONBLOCK
   , pattern SOCK_CLOEXEC
@@ -48,6 +49,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , getaddrinfo
   , recv
   , send
+  , setnonblock
     -- * Constants and helpers
   , recvflags0
   , sendflags0
@@ -58,6 +60,13 @@ module Network.SocketA.LinuxEPoll.Sock
   , addrinfo0
   , peekin
   , pokesa
+  -- * 'AIO' helpers
+  , underaio
+  , aalloca
+  , apoke
+  , apeek
+  , apeekin
+  , amask_
   ) where
 
 import Control.Applicative
@@ -65,6 +74,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Fix
 import Data.Bits
+import Data.Coerce
 import Data.Data
 import Data.Functor
 import Data.Void
@@ -74,7 +84,9 @@ import Foreign.C.Error
 import Foreign.C.String
 import Foreign.C.Types
 import System.IO.Unsafe
+import System.Posix.Types
 
+#include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
 
@@ -162,6 +174,7 @@ pattern AF_INET = AddrFamily #{const AF_INET}
 -- | IPv6
 pattern AF_INET6 = AddrFamily #{const AF_INET}
 
+-- | error returned from a call to @getaddrinfo@
 newtype GetAddrInfoError = GetAddrInfoError { ungetaddrinfoerror :: CInt }
   deriving newtype (Eq)
   deriving stock (Show, Typeable)
@@ -360,7 +373,8 @@ bind :: Socket -> SockAddr -> IO ()
 bind s a =
   alloca \a' -> do
     poke a' a
-    c_bind s (ConstPtr a') #{size struct sockaddr_storage} >>= okn1_ "bind"
+    mask_ do
+      c_bind s (ConstPtr a') #{size struct sockaddr_storage} >>= okn1_ "bind"
 
 -- | Try to bind to addresses in sequence until one succeeds.
 --
@@ -370,11 +384,12 @@ bindfirst :: Socket -> AddrInfo -> IO ()
 bindfirst s l =
   withForeignPtr l \h ->
   peek h >>= fix \r h' ->
-  c_bind s (ConstPtr h'.ai_addr) h'.ai_addrlen >>= \case
-    0 -> pure ()
-    _ -> case h'.ai_next of
-      p | p == nullPtr -> throwErrno "bindfirst"
-      p -> peek p >>= r
+  mask \restore ->
+    c_bind s (ConstPtr h'.ai_addr) h'.ai_addrlen >>= \case
+      0 -> pure ()
+      _ -> case h'.ai_next of
+        p | p == nullPtr -> throwErrno "bindfirst"
+        p -> peek p >>= restore . r
 
 -- | Create and bind a socket to the first successful address.
 --
@@ -412,59 +427,124 @@ listen ::
   Socket ->  -- ^ The socket to mark as passive
   Int ->     -- ^ Maximum length of the pending connections queue
   IO ()
-listen s (fromIntegral -> i) = c_listen s i >>= okn1_ "listen"
+listen s (fromIntegral -> i) = mask_ do c_listen s i >>= okn1_ "listen"
 
 -- now we begin to have nonblocking async calls...
 
+-- | IO, but with an overloaded 'Alternative' instance so we can use
+-- 'empty' to signal blocking
+--
+-- can be considered package-internal
+newtype AIO a = AIO { unaio :: IO a }
+  deriving newtype (Functor, Applicative, Monad)
+
+-- | poor man\'s @withRunInIO@
+underaio :: ((forall x. AIO x -> IO x) -> IO y) -> AIO y
+underaio f = AIO $ f unaio
+{-# INLINE underaio #-}
+
+-- | 'empty' exception for 'AIO'
+data AX = AX
+  deriving stock (Typeable)
+  deriving anyclass (Exception)
+
+-- | \"unhandled blocking\" exception message
+instance Show AX where
+  show _ = "internal error: unhandled blocking"
+
+-- | 'IO'\'s 'Alternative' instance has a critical flaw of throwing a regular
+-- 'IOError' for 'empty' and catch any 'IOError' regardless of whether it\'s
+-- from 'empty' or other sources; we fix that here
+instance Alternative AIO where
+  empty = AIO $ throwIO AX
+  !a <|> b = AIO $ catch (unaio a) \AX -> unaio b
+  {-# INLINE empty #-}
+  {-# INLINE (<|>) #-}
+
+-- | lifted 'alloca'
+aalloca :: (Storable a) => (Ptr a -> AIO b) -> AIO b
+aalloca a = underaio \u -> alloca (u . a)
+{-# INLINE aalloca #-}
+
+-- | lifted 'poke'
+apoke :: (Storable a) => Ptr a -> a -> AIO ()
+apoke = (AIO .) . poke
+{-# INLINE apoke #-}
+
+-- | lifted 'peek'
+apeek :: (Storable a) => Ptr a -> AIO a
+apeek = AIO . peek
+{-# INLINE apeek #-}
+
+-- | lifted 'peekin'
+apeekin :: Ptr SockAddr -> AIO SockAddr
+apeekin = coerce peekin
+{-# INLINE apeekin #-}
+
+-- | lifted 'mask_'
+amask_ :: AIO a -> AIO a
+amask_ a = underaio \u -> mask_ (u a)
+{-# INLINE amask_ #-}
+
+asetnonblock :: Socket -> AIO ()
+asetnonblock = coerce setnonblock
+{-# INLINE asetnonblock #-}
+
+athrowerrno :: String -> AIO a
+athrowerrno = AIO . throwErrno
+{-# INLINE athrowerrno #-}
+
+ablocking :: AIO Bool
+ablocking = AIO blocking
+{-# INLINE ablocking #-}
+
 -- ok unless negative 1; on negative 1, check for blocking. if blocking,
 -- throw empty; otherwise, return
-okn1asy :: String -> (RN1 -> IO a) -> RN1 -> IO a
-okn1asy n _ (-1) = blocking >>= \case
+okn1asy :: String -> (RN1 -> AIO a) -> RN1 -> AIO a
+okn1asy n _ (-1) = AIO blocking >>= \case
   True -> empty
-  False -> throwErrno n
+  False -> athrowerrno n
 okn1asy _ a e = a e
 
--- accept4 is Linux API; saves a call to fcntl to mark the socket nonblocking
-foreign import capi unsafe "sys/socket.h accept4"
+foreign import capi unsafe "sys/socket.h accept"
   -- 2nd, 3rd: restrict, nullable
-  -- only accepted flags are SOCK_NONBLOCK and SOCK_CLOEXEC
-  c_accept4 :: Socket -> Ptr SockAddr -> Ptr Socklen -> SocketType -> IO RN1
+  c_accept :: Socket -> Ptr SockAddr -> Ptr Socklen -> AIO RN1
 
 -- | Accept a new connection on a listening socket.
 --
--- Returns the newly created connected socket.
+-- Returns the newly created connected socket and the peer address.
+--
 -- Throws 'empty' if the operation would block.
-accept :: Socket -> SockAddr -> IO Socket
+accept :: Socket -> SockAddr -> AIO (Socket, SockAddr)
 accept s a =
-  alloca \sa -> do
-    poke sa a
-    alloca \sl -> do
-      poke sl (fromIntegral . sizeOf $ a)
-      -- FIXME: must retrieve from underlying socket
-      let st = SOCK_NONBLOCK .|. SOCK_CLOEXEC
-      mask_ do
-        c_accept4 s sa sl st >>= okn1asy "accept" do
-          pure . Socket . unrn1
+  aalloca \sa -> do
+    apoke sa a
+    aalloca \sl -> do
+      apoke sl #{size struct sockaddr_storage}
+      amask_ do
+        c_accept s sa sl >>= okn1asy "accept" \(unrn1 -> t) -> do
+          let u = Socket t
+          addr <- apeekin sa
+          asetnonblock u
+          pure (u, addr)
 
 foreign import capi unsafe "sys/socket.h connect"
-  c_connect :: Socket -> ConstPtr SockAddr -> Socklen -> IO RN1
+  c_connect :: Socket -> ConstPtr SockAddr -> Socklen -> AIO RN1
 
 -- | Connect a socket to a remote address.
 --
 -- For non-blocking sockets, may throw 'empty' before the connection completes.
 -- The caller should wait for writability to detect connection completion.
-connect :: Socket -> SockAddr -> IO ()
+connect :: Socket -> SockAddr -> AIO ()
 connect s a =
-  alloca \sa -> do
-    poke sa a
-    c_connect s (ConstPtr sa) (fromIntegral . sizeOf $ a) >>= \case
-      -1 -> blocking >>= \case
-        True -> empty
-        False -> throwErrno "connect"
-      _ -> pure ()
-
--- | @ssize_t@; not defined in "Foreign.C.Types" for some reason
-type CSsize = #{type ssize_t}
+  aalloca \sa -> do
+    apoke sa a
+    amask_ do
+      c_connect s (ConstPtr sa) #{size struct sockaddr_storage} >>= \case
+        -1 -> ablocking >>= \case
+          True -> empty
+          False -> athrowerrno "connect"
+        _ -> pure ()
 
 -- | flags for use in 'recv'
 newtype RecvFlags = RecvFlags CInt
@@ -476,19 +556,26 @@ recvflags0 :: RecvFlags
 recvflags0 = RecvFlags 0
 
 foreign import capi unsafe "sys/socket.h recv"
-  c_recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO CSsize
+  c_recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> AIO CSsize
+
+-- common, send and recv
+sendrecv :: String -> (Socket -> Ptr Void -> CSize -> a -> AIO CSsize)
+         -> Socket -> Ptr Void -> CSize -> a -> AIO CSsize
+sendrecv a g s b l f = amask_ do
+  g s b l f >>= \case
+    -1 -> ablocking >>= \case
+      True -> empty
+      False -> athrowerrno a
+    n -> pure n
+{-# INLINE sendrecv #-}
 
 -- | Receive data from a socket into a buffer.
 --
 -- Returns number of bytes read.
 -- Throws 'empty' if it would block.
 -- Returns 0 on end-of-file for stream sockets.
-recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO CSsize
-recv s b l f = c_recv s b l f >>= \case
-  -1 -> blocking >>= \case
-    True -> empty
-    False -> throwErrno "recv"
-  n -> pure n
+recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> AIO CSsize
+recv = sendrecv "recv" c_recv
 
 -- | flags for use in 'send'
 newtype SendFlags = SendFlags CInt
@@ -500,15 +587,24 @@ sendflags0 :: SendFlags
 sendflags0 = SendFlags 0
 
 foreign import capi unsafe "sys/socket.h send"
-  c_send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO CSsize
+  c_send :: Socket -> Ptr Void -> CSize -> SendFlags -> AIO CSsize
 
 -- | Send data from a buffer through a socket.
 --
 -- Returns number of bytes sent.
 -- Throws 'empty' if operation would block.
-send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO CSsize
-send s b l f = c_send s b l f >>= \case
-  -1 -> blocking >>= \case
-    True -> empty
-    False -> throwErrno "send"
-  n -> pure n
+send :: Socket -> Ptr Void -> CSize -> SendFlags -> AIO CSsize
+send = sendrecv "send" c_send
+
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntlv :: Socket -> CInt -> IO RN1
+
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntl1i :: Socket -> CInt -> CInt -> IO RN1
+
+-- | using @fcntl@, mark a socket as non-blocking
+setnonblock :: Socket -> IO ()
+setnonblock s = mask_ do
+  f <- c_fcntlv s #{const F_GETFL} >>= okn1 "setnonblock (get)" (pure . unrn1)
+  c_fcntl1i s #{const F_SETFL} (f .|. #{const O_NONBLOCK}) >>=
+    okn1_ "setnonblock (set)"
