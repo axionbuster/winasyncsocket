@@ -7,6 +7,7 @@ import Control.Monad.Fix
 import Data.Bits
 import Data.Data
 import Data.Functor
+import Data.Void
 import Foreign hiding (void)
 import Foreign.C.ConstPtr
 import Foreign.C.Error
@@ -283,6 +284,26 @@ foreign import capi unsafe "sys/socket.h bind"
 close :: Socket -> IO ()
 close = c_close >=> okn1_ "close"
 
+foreign import capi unsafe "sys/socket.h shutdown"
+  c_shutdown :: Socket -> ShutdownHow -> IO RN1
+
+-- | shut down a socket
+shutdown :: Socket -> ShutdownHow -> IO ()
+shutdown s h = c_shutdown s h >>= okn1_ "shutdown"
+
+-- | how a socket will be shut down in 'shutdown'
+newtype ShutdownHow = ShutdownHow CInt
+  deriving newtype (Eq, Storable, Bits, FiniteBits)
+  deriving stock (Show)
+
+pattern SHUT_RD, SHUT_WR, SHUT_RDWR :: ShutdownHow
+-- | disallow further reading
+pattern SHUT_RD = ShutdownHow #{const SHUT_RD}
+-- | disallow further writing
+pattern SHUT_WR = ShutdownHow #{const SHUT_WR}
+-- | disallow further reading and writing
+pattern SHUT_RDWR = ShutdownHow #{const SHUT_RDWR}
+
 -- | bind a socket to an address
 bind :: Socket -> SockAddr -> IO ()
 bind s a =
@@ -386,3 +407,45 @@ connect s a =
     poke sa a
     c_connect s (ConstPtr sa) (fromIntegral . sizeOf $ a) >>=
       okn1asy_ "connect"
+
+type CSsize = #{type ssize_t}
+
+-- | flags for use in 'recv'
+newtype RecvFlags = RecvFlags CInt
+  deriving newtype (Eq, Storable, Bits, FiniteBits)
+  deriving stock (Show)
+
+-- | zero recv flags
+recvflags0 :: RecvFlags
+recvflags0 = RecvFlags 0
+
+foreign import capi unsafe "sys/socket.h recv"
+  c_recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO CSsize
+
+-- | receive bytes into a buffer; 0 returned for EOF (streams)
+recv :: Socket -> Ptr Void -> CSize -> RecvFlags -> IO (Maybe CSsize)
+recv s b l f = c_recv s b l f >>= \case
+  -1 -> blocking >>= \case
+    True -> pure Nothing
+    False -> throwErrno "recv"
+  n -> pure (Just n)
+
+-- | flags for use in 'send'
+newtype SendFlags = SendFlags CInt
+  deriving newtype (Eq, Storable, Bits, FiniteBits)
+  deriving stock (Show)
+
+-- | zero send flags
+sendflags0 :: SendFlags
+sendflags0 = SendFlags 0
+
+foreign import capi unsafe "sys/socket.h send"
+  c_send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO CSsize
+
+-- | send bytes from a buffer
+send :: Socket -> Ptr Void -> CSize -> SendFlags -> IO (Maybe CSsize)
+send s b l f = c_send s b l f >>= \case
+  -1 -> blocking >>= \case
+    True -> pure Nothing
+    False -> throwErrno "send"
+  n -> pure (Just n)
