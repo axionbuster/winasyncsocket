@@ -408,6 +408,7 @@ connect s a =
     c_connect s (ConstPtr sa) (fromIntegral . sizeOf $ a) >>=
       okn1asy_ "connect"
 
+-- | @ssize_t@; not defined in "Foreign.C.Types" for some reason
 type CSsize = #{type ssize_t}
 
 -- | flags for use in 'recv'
