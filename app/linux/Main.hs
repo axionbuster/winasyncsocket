@@ -3,9 +3,11 @@ module Main (main) where
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as B
+import Data.ByteString.Char8 qualified as C
 import Data.Function
 import Debug.Trace
 import Network.SocketA.LinuxEPoll.TCPIP
+import System.Environment
 import System.IO
 
 withColor :: String -> String -> String
@@ -45,5 +47,37 @@ server = do
                   traceIO "message sent"
                   loop
 
+client :: IO ()
+client = do
+  let ai1 =
+        addrinfo0
+          { ai_socktype = SOCK_STREAM,
+            ai_protocol = IPPROTO_TCP,
+            ai_family = AF_INET
+          }
+      mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
+  addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
+  bracket mksocket close \sock -> do
+    traceIO "connecting to server"
+    sockaddrin addr >>= bind sock
+    sockaddrin addr >>= connect sock
+    hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
+    forever do
+      line <- C.getLine
+      sendall sock line
+      resp <- recv sock 1024
+      C.putStrLn resp
+
 main :: IO ()
-main = server
+main = do
+  args <- getArgs
+  catch
+    case args of
+      ["--server"] -> server
+      ["--client"] -> client
+      _ -> do
+        hPutStrLn stderr "Usage: ... --server|--client"
+        error "Invalid arguments"
+    do
+      \(e :: SomeException) ->
+        putStrLn $ "error: " ++ displayException e
