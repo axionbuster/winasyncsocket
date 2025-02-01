@@ -1,3 +1,17 @@
+-- |
+-- Module      : Network.SocketA.LinuxEPoll.TCPIP
+-- Description : Integrate TCP/IP socket I/O with GHC (Linux/epoll)
+-- Copyright   : (c) axionbuster, 2025
+-- License     : BSD-3-Clause
+--
+-- This module provides high-level TCP/IP networking primitives for Linux systems,
+-- integrated with GHC's event manager using epoll. It offers a simpler interface
+-- compared to the low-level Sock module, with non-blocking operations that work
+-- with GHC's IO manager.
+--
+-- All sockets are created in non-blocking mode and use epoll for asynchronous I/O.
+-- The module provides common TCP/IP operations like accept, connect, send, and
+-- receive with proper integration into GHC's runtime system.
 module Network.SocketA.LinuxEPoll.TCPIP
   ( -- * Types
     S.Socket,
@@ -105,11 +119,10 @@ unwrap = either throwIO pure
 -- 3. cleanup registration regardless of success/failure
 --
 -- guarantees:
---
--- * registration cleaned up via bracket
--- * exceptions propagated to caller
--- * callback executes exactly once
--- * no memory/FD leaks on exceptions
+-- - registration cleaned up via bracket
+-- - exceptions propagated to caller
+-- - callback executes exactly once
+-- - no memory/FD leaks on exceptions
 --
 -- //note//: socket must be non-blocking
 async1 :: Event -> S.AIO a -> S.Socket -> IO a
