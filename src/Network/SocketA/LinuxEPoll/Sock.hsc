@@ -33,6 +33,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , pattern SOCK_STREAM
   , pattern AF_INET
   , pattern AF_INET6
+  , pattern IPPROTO_TCP
   , pattern SHUT_RD
   , pattern SHUT_WR
   , pattern SHUT_RDWR
@@ -61,6 +62,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , peekin
   , pokesa
   , epollavailable
+  , sockaddrin
   -- * 'AIO' helpers
   , underaio
   , aalloca
@@ -183,6 +185,10 @@ pattern AF_INET, AF_INET6 :: AddrFamily
 pattern AF_INET = AddrFamily #{const AF_INET}
 -- | IPv6
 pattern AF_INET6 = AddrFamily #{const AF_INET}
+
+pattern IPPROTO_TCP :: Protocol
+-- | TCP
+pattern IPPROTO_TCP = Protocol #{const IPPROTO_TCP}
 
 -- | error returned from a call to @getaddrinfo@
 newtype GetAddrInfoError = GetAddrInfoError { ungetaddrinfoerror :: CInt }
@@ -321,13 +327,18 @@ foreign import capi unsafe "netdb.h gai_strerror"
   c_gai_strerror :: GetAddrInfoError -> ConstPtr CChar
 
 -- | a managed 'AddrInfo_' list (head only); never NULL
+--
+-- to get the address for use with 'bind', use 'sockaddrin'
 type AddrInfo = ForeignPtr AddrInfo_
 
 -- | Lookup network addresses. This is a high-level wrapper around
 -- the @getaddrinfo(3)@ system call.
 --
 -- if it fails, it throws a 'GetAddrInfoError' or 'IOError'
-getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO (ForeignPtr AddrInfo_)
+--
+-- you can use 'addrinfo0' as a default 'AddrInfo_' value, and
+-- use 'sockaddrin' to extract the 'SockAddr' from the returned 'AddrInfo'
+getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO AddrInfo
 getaddrinfo node service hints =
   withCString node \(ConstPtr -> n) ->
   withCString service \(ConstPtr -> s) ->
@@ -340,6 +351,12 @@ getaddrinfo node service hints =
           GetAddrInfoError 0 -> peek r >>= newForeignPtr c_freeaddrinfo
           GetAddrInfoError (#{const EAI_SYSTEM}) -> throwErrno "getaddrinfo"
           e -> throwIO e
+
+-- | assuming the 'AddrInfo' contains a valid 'SockAddrIn', get the 'SockAddr'
+sockaddrin :: AddrInfo -> IO SockAddr
+sockaddrin l =
+  withForeignPtr l \h ->
+  peek h >>= peekin . ai_addr
 
 foreign import capi unsafe "unistd.h close"
   c_close :: Socket -> IO RN1
@@ -530,18 +547,13 @@ foreign import capi unsafe "sys/socket.h accept"
 -- Returns the newly created connected socket and the peer address.
 --
 -- Throws 'empty' if the operation would block.
-accept :: Socket -> SockAddr -> AIO (Socket, SockAddr)
-accept s a =
-  aalloca \sa -> do
-    apoke sa a
-    aalloca \sl -> do
-      apoke sl #{size struct sockaddr_storage}
-      amask_ do
-        c_accept s sa sl >>= okn1asy "accept" \(unrn1 -> t) -> do
-          let u = Socket t
-          addr <- apeekin sa
-          asetnonblock u
-          pure (u, addr)
+accept :: Socket -> AIO Socket
+accept s =
+  amask_ do
+    c_accept s nullPtr nullPtr >>= okn1asy "accept" \(unrn1 -> t) -> do
+      let u = Socket t
+      asetnonblock u
+      pure u
 
 foreign import capi unsafe "sys/socket.h connect"
   c_connect :: Socket -> ConstPtr SockAddr -> Socklen -> AIO RN1

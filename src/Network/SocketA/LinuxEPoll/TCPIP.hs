@@ -1,11 +1,23 @@
 module Network.SocketA.LinuxEPoll.TCPIP
   ( -- * Types
     S.Socket,
-    S.AddrFamily,
-    S.SocketType,
-    S.Protocol,
-    S.AddrInfo_,
+    S.AddrFamily (..),
+    S.SocketType (..),
+    S.Protocol (..),
+    S.AddrInfo_ (..),
     S.AddrInfo,
+
+    -- * Constants and Patterns
+    pattern S.SOCK_NONBLOCK,
+    pattern S.SOCK_CLOEXEC,
+    pattern S.SOCK_STREAM,
+    pattern S.AF_INET,
+    pattern S.AF_INET6,
+    pattern S.IPPROTO_TCP,
+    pattern S.SHUT_RD,
+    pattern S.SHUT_WR,
+    pattern S.SHUT_RDWR,
+    S.addrinfo0,
 
     -- * Functions
     usingepoll,
@@ -17,6 +29,7 @@ module Network.SocketA.LinuxEPoll.TCPIP
     S.bindfirst2,
     S.listen,
     accept,
+    S.sockaddrin,
   )
 where
 
@@ -76,12 +89,12 @@ right :: (Exception a) => Either a b -> IO b
 right = either throwIO pure
 
 -- | accept a connection from a bound, listening socket
-accept :: S.Socket -> S.SockAddr -> IO (S.Socket, S.SockAddr)
-accept s a = do
+accept :: S.Socket -> IO S.Socket
+accept s = do
   w <- newEmptyMVar
   let f _ _ = mask_ do
         catch
-          do S.unaio (S.accept s a) >>= putMVar w . Right
+          do S.unaio (S.accept s) >>= putMVar w . Right
           \(x :: SomeException) -> putMVar w (Left x)
   bracket
     do regfd f evtRead OneShot (sk2fd s)
