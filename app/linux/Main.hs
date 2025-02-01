@@ -2,6 +2,8 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
+import Data.ByteString qualified as B
+import Data.Function
 import Debug.Trace
 import Network.SocketA.LinuxEPoll.TCPIP
 import System.IO
@@ -29,22 +31,19 @@ server = do
         do accept sock
         do \c -> traceIO (withColor "\ESC[31m" "bye!") *> close c
         do
-          \_ -> do
+          \c -> do
             traceIO (withColor "\ESC[32m" "client connected")
-
--- handle (\(e :: IOException) -> hPrint stderr e) do
---   -- Echo loop
---   fix \loop -> do
---     traceIO "waiting for message"
---     msg <- recv c 1024
---     traceIO "message received"
---     if C.length msg > 0
---       then do
---         traceIO "sending message back"
---         sendall c msg
---         traceIO "message sent"
---         loop
---       else pure ()
+            handle (\(e :: IOException) -> traceShowM e) do
+              -- Echo loop
+              fix \loop -> do
+                traceIO "waiting for message"
+                msg <- recv c 10 -- make small so i can test that it works
+                traceIO "message received"
+                when (B.length msg > 0) do
+                  traceIO "sending message back"
+                  sendall c msg
+                  traceIO "message sent"
+                  loop
 
 main :: IO ()
 main = server
