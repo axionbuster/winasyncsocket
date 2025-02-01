@@ -96,8 +96,22 @@ close = closefd (S.close . fd2sk) . sk2fd
 unwrap :: (Exception a) => Either a b -> IO b
 unwrap = either throwIO pure
 
--- a highly repetitive pattern for async operations
--- (oneshot, one event, one socket)
+-- perform a one-shot async operation on a socket
+--
+-- flow:
+--
+-- 1. register socket FD with event manager for specified event
+-- 2. when event fires, execute AIO action in masked context
+-- 3. cleanup registration regardless of success/failure
+--
+-- guarantees:
+--
+-- * registration cleaned up via bracket
+-- * exceptions propagated to caller
+-- * callback executes exactly once
+-- * no memory/FD leaks on exceptions
+--
+-- //note//: socket must be non-blocking
 async1 :: Event -> S.AIO a -> S.Socket -> IO a
 async1 e f h = do
   -- synopsis.
@@ -108,10 +122,14 @@ async1 e f h = do
   --     (-> unwrap)
   --     (then deregister the interest)
   w <- newEmptyMVar
-  let g _ _ =
+  let g _ _ = mask_ do
         catch
+          -- uninterruptible putMVar
+          -- (this is the only place that can put to the MVar)
           do S.unaio f >>= putMVar w . Right
+          -- wormhole the exception to the calling thread
           \(x :: SomeException) -> putMVar w (Left x)
+  -- no need to apply mask_ here since 'bracket' takes care of the cleanup
   bracket
     do regfd g e OneShot (sk2fd h)
     do unregfd
