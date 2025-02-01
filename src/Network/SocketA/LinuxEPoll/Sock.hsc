@@ -61,7 +61,6 @@ module Network.SocketA.LinuxEPoll.Sock
   , addrinfo0
   , peekin
   , pokesa
-  , epollavailable
   , sockaddrin
   -- * 'AIO' helpers
   , underaio
@@ -96,11 +95,6 @@ import System.Posix.Types
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
-
--- | whether epoll is available
-epollavailable :: Bool
-epollavailable = True
-{-# INLINE epollavailable #-}
 
 -- | A socket handle for Linux\/POSIX systems, wrapping a file descriptor.
 -- All sockets are created in non-blocking mode by default.

@@ -20,7 +20,6 @@ module Network.SocketA.LinuxEPoll.TCPIP
     S.addrinfo0,
 
     -- * Functions
-    usingepoll,
     S.socket,
     S.getaddrinfo,
     close,
@@ -38,12 +37,6 @@ import Control.Exception
 import GHC.Event
 import Network.SocketA.LinuxEPoll.Sock qualified as S
 import System.Posix.Types
-
--- | check if epoll is available
-usingepoll :: Bool
-usingepoll = S.epollavailable
-{-# INLINE usingepoll #-}
-
 -- here Fd is a newtype over a CInt; distinct from FD type from GHC.IO.FD
 
 -- assuming a threaded runtime, get the system event manager
@@ -85,18 +78,27 @@ close = closefd (S.close . fd2sk) . sk2fd
 
 -- TODO: shutdown
 
-right :: (Exception a) => Either a b -> IO b
-right = either throwIO pure
+-- if successful, unwrap; otherwise, rethrow the exception
+unwrap :: (Exception a) => Either a b -> IO b
+unwrap = either throwIO pure
 
 -- | accept a connection from a bound, listening socket
 accept :: S.Socket -> IO S.Socket
 accept s = do
+  -- synopsis.
+  --  1. register an interest in the socket's file descriptor for reading
+  --     (-> accept)
+  --  2. wait [w] for the event to occur (-> takeMVar)
+  --     (done asynchronously by GHC's event manager)
+  --  3. process the event if successful, or rethrow the exception
+  --     (-> unwrap)
+  --     (then deregister the interest)
   w <- newEmptyMVar
-  let f _ _ = mask_ do
+  let f _ _ =
         catch
           do S.unaio (S.accept s) >>= putMVar w . Right
           \(x :: SomeException) -> putMVar w (Left x)
   bracket
     do regfd f evtRead OneShot (sk2fd s)
-    do unregfd
-    do \_ -> takeMVar w >>= right
+    do unregfd -- unnecessary since OneShot, but good practice
+    do \_ -> takeMVar w >>= unwrap
