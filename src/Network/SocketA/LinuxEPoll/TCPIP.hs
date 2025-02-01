@@ -8,6 +8,7 @@ module Network.SocketA.LinuxEPoll.TCPIP
     S.AddrInfo,
 
     -- * Functions
+    usingepoll,
     S.socket,
     S.getaddrinfo,
     close,
@@ -24,6 +25,11 @@ import Control.Exception
 import GHC.Event
 import Network.SocketA.LinuxEPoll.Sock qualified as S
 import System.Posix.Types
+
+-- | check if epoll is available
+usingepoll :: Bool
+usingepoll = S.epollavailable
+{-# INLINE usingepoll #-}
 
 -- here Fd is a newtype over a CInt; distinct from FD type from GHC.IO.FD
 
@@ -73,11 +79,11 @@ right = either throwIO pure
 accept :: S.Socket -> S.SockAddr -> IO (S.Socket, S.SockAddr)
 accept s a = do
   w <- newEmptyMVar
-  let f h _ = mask_ do
+  let f _ _ = mask_ do
         catch
           do S.unaio (S.accept s a) >>= putMVar w . Right
           \(x :: SomeException) -> putMVar w (Left x)
-  b <- regfd f evtRead OneShot (sk2fd s)
-  finally
-    do fmap right (takeMVar w)
-    do unregfd b
+  bracket
+    do regfd f evtRead OneShot (sk2fd s)
+    do unregfd
+    do \_ -> takeMVar w >>= right

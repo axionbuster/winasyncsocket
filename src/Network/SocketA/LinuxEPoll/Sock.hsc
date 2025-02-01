@@ -60,6 +60,7 @@ module Network.SocketA.LinuxEPoll.Sock
   , addrinfo0
   , peekin
   , pokesa
+  , epollavailable
   -- * 'AIO' helpers
   , underaio
   , aalloca
@@ -86,9 +87,18 @@ import Foreign.C.Types
 import System.IO.Unsafe
 import System.Posix.Types
 
+-- we don't use sys/epoll.h, but only include it to prevent
+-- compilation when epoll is not available
+#include <sys/epoll.h>
+
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/socket.h>
+
+-- | whether epoll is available
+epollavailable :: Bool
+epollavailable = True
+{-# INLINE epollavailable #-}
 
 -- | A socket handle for Linux\/POSIX systems, wrapping a file descriptor.
 -- All sockets are created in non-blocking mode by default.
