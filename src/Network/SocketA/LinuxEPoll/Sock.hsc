@@ -461,6 +461,11 @@ instance Alternative AIO where
   {-# INLINE empty #-}
   {-# INLINE (<|>) #-}
 
+-- | regular 'IO'
+instance MonadFail AIO where
+  fail = AIO . fail
+  {-# INLINE fail #-}
+
 -- | lifted 'alloca'
 aalloca :: (Storable a) => (Ptr a -> AIO b) -> AIO b
 aalloca a = underaio \u -> alloca (u . a)

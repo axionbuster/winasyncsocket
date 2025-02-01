@@ -20,6 +20,7 @@ module Network.SocketA.LinuxEPoll.TCPIP
 where
 
 import Control.Concurrent
+import Control.Exception
 import GHC.Event
 import Network.SocketA.LinuxEPoll.Sock qualified as S
 import System.Posix.Types
@@ -65,11 +66,18 @@ close = closefd (S.close . fd2sk) . sk2fd
 
 -- TODO: shutdown
 
+right :: (Exception a) => Either a b -> IO b
+right = either throwIO pure
+
 -- | accept a connection from a bound, listening socket
-accept :: S.Socket -> S.SockAddr -> IO S.Socket
+accept :: S.Socket -> S.SockAddr -> IO (S.Socket, S.SockAddr)
 accept s a = do
   w <- newEmptyMVar
-  let f h _ = g h
-      g h = S.accept (fd2sk h.keyFd) a >>= putMVar w
-  e <- regfd f evtRead OneShot (sk2fd s) -- evtRead = EPOLLIN
-  takeMVar w <* unregfd e
+  let f h _ = mask_ do
+        catch
+          do S.unaio (S.accept s a) >>= putMVar w . Right
+          \(x :: SomeException) -> putMVar w (Left x)
+  b <- regfd f evtRead OneShot (sk2fd s)
+  finally
+    do fmap right (takeMVar w)
+    do unregfd b
