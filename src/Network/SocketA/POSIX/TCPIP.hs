@@ -41,8 +41,6 @@ module Network.SocketA.POSIX.TCPIP
     S.getaddrinfo,
     close,
     S.bind,
-    S.bindfirst,
-    S.bindfirst2,
     S.listen,
     accept,
     S.shutdown,
