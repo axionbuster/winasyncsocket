@@ -21,6 +21,7 @@ module Network.SocketA.POSIX.TCPIP
     S.AddrInfo_ (..),
     S.AddrInfo,
     S.ShutdownHow (..),
+    S.GetAddrInfoError (..),
 
     -- * Constants and Patterns
 #if defined(linux_HOST_OS)
