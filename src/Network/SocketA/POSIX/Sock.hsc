@@ -46,6 +46,7 @@ module Network.SocketA.POSIX.Sock
   , listen
   , accept
   , connect
+  , connecterror
   , getaddrinfo
   , recv
   , send
@@ -408,6 +409,26 @@ listen ::
   IO ()
 listen s (fromIntegral -> i) = mask_ do c_listen s i >>= okn1_ "listen"
 
+foreign import capi unsafe "sys/socket.h getsockopt"
+  c_getsockopt :: Socket -> CInt -> CInt -> Ptr CInt -> Ptr Socklen -> IO RN1
+
+-- internal: get an integer option from a socket
+getsockopt_int :: Socket -> CInt -> CInt -> IO CInt
+getsockopt_int s l o = alloca \v -> alloca \l' -> mask_ do
+  poke l' #{size int}
+  c_getsockopt s l o v l' >>= okn1_ "getsockopt_int"
+  peek v
+
+-- | check if a 'connect' call has succeeded
+--
+-- * 'Just': the connection has failed with the given error
+-- * 'Nothing': the connection has succeeded
+connecterror :: Socket -> IO (Maybe Errno)
+connecterror s =
+  getsockopt_int s #{const SOL_SOCKET} #{const SO_ERROR} <&> \case
+    0 -> Nothing
+    e -> Just (Errno e)
+
 -- now we begin to have nonblocking async calls...
 
 -- | IO, but with an overloaded 'Alternative' instance so we can use
@@ -477,6 +498,10 @@ ablocking :: AIO Bool
 ablocking = AIO blocking
 {-# INLINE ablocking #-}
 
+ageterrno :: AIO Errno
+ageterrno = AIO getErrno
+{-# INLINE ageterrno #-}
+
 -- ok unless negative 1; on negative 1, check for blocking. if blocking,
 -- throw empty; otherwise, return
 okn1asy :: String -> (RN1 -> AIO a) -> RN1 -> AIO a
@@ -513,9 +538,15 @@ connect :: Socket -> AddressLen -> AIO ()
 connect s a =
   amask_ do
     c_connect s (ConstPtr a.aaddr) a.alen >>= \case
-      -1 -> ablocking >>= \case
-        True -> empty
-        False -> athrowerrno "connect"
+      -1 ->
+        -- for 'connect' on TCP/IP, the blocking error is EINPROGRESS
+        ageterrno >>= \case
+          e | e == eINPROGRESS -> empty
+          _ ->
+            -- EAGAIN could be returned for UNIX domain sockets
+            ablocking >>= \case
+              True -> empty
+              False -> athrowerrno "connect"
       _ -> pure ()
 
 -- | flags for use in 'recv'

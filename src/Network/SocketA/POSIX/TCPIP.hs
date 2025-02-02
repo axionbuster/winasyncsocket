@@ -58,6 +58,7 @@ module Network.SocketA.POSIX.TCPIP
   )
 where
 
+import Control.Applicative
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
@@ -65,6 +66,7 @@ import Data.ByteString qualified as B
 import Data.ByteString.Internal (ByteString, createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Function
+import Foreign.C.Error
 import Foreign.Ptr
 import GHC.Event
 import Network.SocketA.POSIX.Sock qualified as S
@@ -157,7 +159,32 @@ accept s = async1 evtRead (S.accept s) s
 
 -- | connect a socket to a remote address
 connect :: S.Socket -> S.AddressLen -> IO ()
-connect s a = async1 evtWrite (S.connect s a) s
+connect s a = do
+  -- code works like 'accept', but need a special workflow...
+  --  1. call 'connect', but it will almost certainly fail immediately with
+  --     EINPROGRESS. can be caught by (<|>) instance of AIO
+  --  2. once called back by event mgr, check for status using 'connecterror'
+  --  3. on no error, clean up & return; otherwise, throw error
+  w <- newEmptyMVar
+  let g _ _ = mask_ do
+        catch
+          do
+            S.connecterror s >>= \case
+              Nothing -> putMVar w do Right ()
+              Just e -> putMVar w $ Left $ toException do
+                errnoToIOError
+                  "connect"
+                  e
+                  Nothing -- 'Handle' data structure
+                  Nothing -- file name
+          \(x :: SomeException) -> putMVar w (Left x)
+  bracket
+    ( mask_ do
+        S.unaio (S.connect s a <|> pure ())
+          *> regfd g evtWrite OneShot (sk2fd s)
+    )
+    do unregfd
+    do \_ -> takeMVar w >>= unwrap
 
 -- | recv some data from a socket
 --
