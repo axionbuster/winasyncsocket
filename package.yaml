@@ -9,6 +9,7 @@ copyright:           "2025 axionbuster"
 language: GHC2021
 
 default-extensions:
+- AllowAmbiguousTypes
 - BlockArguments
 - DeriveAnyClass
 - DerivingStrategies
@@ -20,6 +21,7 @@ default-extensions:
 - OverloadedRecordDot
 - PatternSynonyms
 - RecordWildCards
+- TypeFamilies
 - ViewPatterns
 
 extra-source-files:

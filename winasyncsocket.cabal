@@ -27,6 +27,8 @@ source-repository head
   location: https://github.com/githubuser/winasyncsocket
 
 library
+  exposed-modules:
+      Network.SocketA
   other-modules:
       Paths_winasyncsocket
   autogen-modules:
@@ -34,6 +36,7 @@ library
   hs-source-dirs:
       src
   default-extensions:
+      AllowAmbiguousTypes
       BlockArguments
       DeriveAnyClass
       DerivingStrategies
@@ -45,6 +48,7 @@ library
       OverloadedRecordDot
       PatternSynonyms
       RecordWildCards
+      TypeFamilies
       ViewPatterns
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   include-dirs:
@@ -78,6 +82,7 @@ executable winasyncsocket-exe
   autogen-modules:
       Paths_winasyncsocket
   default-extensions:
+      AllowAmbiguousTypes
       BlockArguments
       DeriveAnyClass
       DerivingStrategies
@@ -89,6 +94,7 @@ executable winasyncsocket-exe
       OverloadedRecordDot
       PatternSynonyms
       RecordWildCards
+      TypeFamilies
       ViewPatterns
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
