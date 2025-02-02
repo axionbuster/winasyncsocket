@@ -55,54 +55,45 @@ library:
   source-dirs: src
   include-dirs: src
   build-tools: hsc2hs
-  other-modules:
-    - Network.SocketA.POSIX.Sock
   when:
     - condition: os(windows)
-      exposed-modules:
-        - Network.SocketA.Windows.TCPIP
-      other-modules:
-        - Network.SocketA.Windows.Sock
-      c-sources:
-        - src/Network/SocketA/Windows/ax.c
-      include-dirs:
-        - src/Network/SocketA/Windows
-      dependencies:
-        - Win32 >= 2.13.4 && < 2.14
-    - condition: os(linux)
-      exposed-modules:
-        - Network.SocketA.LinuxEPoll.TCPIP
-      other-modules:
-        - Network.SocketA.LinuxEPoll.Sock
+      then:
+        exposed-modules:
+          - Network.SocketA.Windows.TCPIP
+        other-modules:
+          - Network.SocketA.Windows.Sock
+        c-sources:
+          - src/Network/SocketA/Windows/ax.c
+        include-dirs:
+          - src/Network/SocketA/Windows
+        dependencies:
+          - Win32 >= 2.13.4 && < 2.14
+      else:
+        exposed-modules:
+          - Network.SocketA.POSIX.TCPIP
+        other-modules:
+          - Network.SocketA.POSIX.Sock
 
 executables:
   winasyncsocket-exe:
     when:
       - condition: os(windows)
-        main:                Main.hs
-        source-dirs:         app/win
-        ghc-options:
-        - -threaded
-        - -rtsopts
-        - -with-rtsopts=-N
-        - -with-rtsopts=--io-manager=native
-        dependencies:
-        - winasyncsocket
-      - condition: os(linux)
-        main:                Main.hs
-        source-dirs:         app/linux
-        ghc-options:
-        - -threaded
-        - -rtsopts
-        - -with-rtsopts=-N
-        dependencies:
-        - winasyncsocket
-      - condition: os(darwin) || os(freebsd)
-        main:                Main.hs
-        source-dirs:         app/bsd
-        ghc-options:
-        - -threaded
-        - -rtsopts
-        - -with-rtsopts=-N
-        dependencies:
-        - winasyncsocket
+        then:
+          main:                Main.hs
+          source-dirs:         app/win
+          ghc-options:
+          - -threaded
+          - -rtsopts
+          - -with-rtsopts=-N
+          - -with-rtsopts=--io-manager=native
+          dependencies:
+          - winasyncsocket
+        else:
+          main:                Main.hs
+          source-dirs:         app/posix
+          ghc-options:
+          - -threaded
+          - -rtsopts
+          - -with-rtsopts=-N
+          dependencies:
+          - winasyncsocket

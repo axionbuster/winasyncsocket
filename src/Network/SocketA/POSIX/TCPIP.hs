@@ -1,18 +1,18 @@
 -- |
--- Module      : Network.SocketA.LinuxEPoll.TCPIP
--- Description : Integrate TCP/IP socket I/O with GHC (Linux/epoll)
+-- Module      : Network.SocketA.POSIX.TCPIP
+-- Description : Integrate TCP/IP socket I/O with GHC
 -- Copyright   : (c) axionbuster, 2025
 -- License     : BSD-3-Clause
 --
 -- This module provides high-level TCP/IP networking primitives for Linux systems,
--- integrated with GHC's event manager using epoll. It offers a simpler interface
--- compared to the low-level Sock module, with non-blocking operations that work
+-- integrated with GHC's event manager. It offers a simpler interface
+-- compared to the low-level "Sock" module, with non-blocking operations that work
 -- with GHC's IO manager.
 --
 -- All sockets are created in non-blocking mode and use epoll for asynchronous I/O.
 -- The module provides common TCP/IP operations like accept, connect, send, and
 -- receive with proper integration into GHC's runtime system.
-module Network.SocketA.LinuxEPoll.TCPIP
+module Network.SocketA.POSIX.TCPIP
   ( -- * Types
     S.Socket,
     S.AddrFamily (..),
@@ -23,8 +23,10 @@ module Network.SocketA.LinuxEPoll.TCPIP
     S.ShutdownHow (..),
 
     -- * Constants and Patterns
+#if defined(linux_HOST_OS)
     pattern S.SOCK_NONBLOCK,
     pattern S.SOCK_CLOEXEC,
+#endif
     pattern S.SOCK_STREAM,
     pattern S.AF_INET,
     pattern S.AF_INET6,

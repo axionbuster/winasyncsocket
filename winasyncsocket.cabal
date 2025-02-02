@@ -28,7 +28,9 @@ source-repository head
 
 library
   other-modules:
-      Network.SocketA.POSIX.Sock
+      Paths_winasyncsocket
+  autogen-modules:
+      Paths_winasyncsocket
   hs-source-dirs:
       src
   default-extensions:
@@ -64,11 +66,11 @@ library
         src/Network/SocketA/Windows/ax.c
     build-depends:
         Win32 >=2.13.4 && <2.14
-  if os(linux)
+  else
     exposed-modules:
-        Network.SocketA.LinuxEPoll.TCPIP
+        Network.SocketA.POSIX.TCPIP
     other-modules:
-        Network.SocketA.LinuxEPoll.Sock
+        Network.SocketA.POSIX.Sock
 
 executable winasyncsocket-exe
   other-modules:
@@ -100,17 +102,10 @@ executable winasyncsocket-exe
     ghc-options: -threaded -rtsopts -with-rtsopts=-N -with-rtsopts=--io-manager=native
     build-depends:
         winasyncsocket
-  if os(linux)
+  else
     main-is: Main.hs
     hs-source-dirs:
-        app/linux
-    ghc-options: -threaded -rtsopts -with-rtsopts=-N
-    build-depends:
-        winasyncsocket
-  if os(darwin) || os(freebsd)
-    main-is: Main.hs
-    hs-source-dirs:
-        app/bsd
+        app/posix
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         winasyncsocket

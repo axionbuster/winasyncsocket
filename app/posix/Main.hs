@@ -6,7 +6,7 @@ import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
 import Data.Function
 import Debug.Trace
-import Network.SocketA.LinuxEPoll.TCPIP
+import Network.SocketA.POSIX.TCPIP
 import System.Environment
 import System.IO
 
@@ -15,7 +15,7 @@ withColor color text = color ++ text ++ "\ESC[0m"
 
 server :: IO ()
 server = do
-  hPutStrLn stderr "starting server on localhost:50123"
+  hPutStrLn stderr "starting server on localhost:50123 (POSIX)"
   let ai1 =
         addrinfo0
           { ai_socktype = SOCK_STREAM,
@@ -58,7 +58,7 @@ client = do
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
-    traceIO "connecting to server"
+    traceIO "connecting to server (POSIX)"
     sockaddrin addr >>= bind sock
     sockaddrin addr >>= connect sock
     hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
