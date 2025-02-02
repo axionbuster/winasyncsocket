@@ -154,7 +154,7 @@ foreign import capi unsafe "sys/socket.h socket"
 
 -- | Create a new non-blocking socket.
 -- 
--- The socket is always created in non-blocking mode as required for epoll.
+-- The socket is always created in non-blocking mode.
 socket :: AddrFamily -> SocketType -> Protocol -> IO Socket
 socket d s p = mask_ do
   t <- c_socket d s p >>= okn1 "socket" (pure . Socket . unrn1)

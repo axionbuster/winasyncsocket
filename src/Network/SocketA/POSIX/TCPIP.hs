@@ -1,6 +1,6 @@
 -- |
 -- Module      : Network.SocketA.POSIX.TCPIP
--- Description : Integrate TCP/IP socket I/O with GHC
+-- Description : Integrate TCP\/IP socket I\/O with GHC
 -- Copyright   : (c) axionbuster, 2025
 -- License     : BSD-3-Clause
 --
@@ -9,7 +9,7 @@
 -- compared to the low-level "Sock" module, with non-blocking operations that work
 -- with GHC's IO manager.
 --
--- All sockets are created in non-blocking mode and use epoll for asynchronous I/O.
+-- All sockets are created in non-blocking mode and use asynchronous I/O.
 -- The module provides common TCP/IP operations like accept, connect, send, and
 -- receive with proper integration into GHC's runtime system.
 module Network.SocketA.POSIX.TCPIP
