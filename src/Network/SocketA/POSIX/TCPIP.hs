@@ -41,7 +41,7 @@ module Network.SocketA.POSIX.TCPIP
     S.getaddrinfo,
     close,
     S.bind,
-    S.listen,
+    listen,
     accept,
     S.shutdown,
     connect,
@@ -53,6 +53,7 @@ module Network.SocketA.POSIX.TCPIP
     sendAll,
     S.addrpair,
     S.addrpair_,
+    S.withaddrpair,
   )
 where
 
@@ -112,6 +113,10 @@ close = closefd (S.close . fd2sk) . sk2fd
 -- if successful, unwrap; otherwise, rethrow the exception
 unwrap :: (Exception a) => Either a b -> IO b
 unwrap = either throwIO pure
+
+-- | mark a socket as passive with an automatically determined queue length
+listen :: S.Socket -> IO ()
+listen = (`S.listen` 4096)
 
 -- perform a one-shot async operation on a socket
 --
