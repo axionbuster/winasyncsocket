@@ -6,7 +6,7 @@
 --
 -- This module provides high-level TCP/IP networking primitives for Linux systems,
 -- integrated with GHC's event manager. It offers a simpler interface
--- compared to the low-level "Sock" module, with non-blocking operations that work
+-- compared to the low-level @Sock@ module, with non-blocking operations that work
 -- with GHC's IO manager.
 --
 -- All sockets are created in non-blocking mode and use asynchronous I/O.
