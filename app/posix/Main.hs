@@ -64,7 +64,7 @@ client = do
     forever do
       line <- C.getLine
       sendall sock line
-      resp <- recv sock 1024
+      resp <- recvall sock $ B.length line
       C.putStrLn resp
 
 main :: IO ()
