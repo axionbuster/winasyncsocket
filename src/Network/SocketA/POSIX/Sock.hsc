@@ -18,8 +18,8 @@ module Network.SocketA.POSIX.Sock
   , Protocol(..)
   , AddrFlag(..)
   , GetAddrInfoError(..)
-  , SockAddr(..)
-  , InAddr(..)
+  , SockAddr
+  , AddressLen
   , AddrInfo
   , AddrInfo_(..)
   , ShutdownHow(..)
@@ -58,15 +58,13 @@ module Network.SocketA.POSIX.Sock
   , protocol0
   , addrflag0
   , addrinfo0
-  , peekin
-  , pokesa
-  , sockaddrin
+  , addrpair
+  , addrpair_
   -- * 'AIO' helpers
   , underaio
   , aalloca
   , apoke
   , apeek
-  , apeekin
   , amask_
   ) where
 
@@ -198,56 +196,16 @@ instance Exception GetAddrInfoError where
         let ConstPtr a = c_gai_strerror f
         peekCString a
 
--- | type of 'ai_addrlen'
-type Socklen = #{type socklen_t}
-
--- | Socket address structure for IPv4.
--- This implementation is opaque and managed through 'pokesa' and 'peekin'.
-data SockAddr
-  = SockAddrIn
-    { sin_family :: SaFamilyT
-    , sin_port :: InPortT
-    , sin_addr :: InAddr
-    }
-  deriving (Eq, Show)
-
--- | @struct in_addr@
-newtype InAddr = InAddr { s_addr :: InAddrT }
-  deriving newtype (Eq, Storable)
+-- | a pointer to an address along with its length
+data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: Socklen }
   deriving stock (Show)
 
--- | @in_addr_t@
-type InAddrT = #{type in_addr_t}
+-- | opaque pointer to a @struct sockaddr@ (one of many variants thereof)
+data SockAddr
+  deriving stock (Show, Read)
 
--- | - member 'peek' will throw an error when called
--- - 'sizeOf' is that of @struct sockaddr_storage@; beware when doing
--- array operations
-instance Storable SockAddr where
-  sizeOf _ = #{size struct sockaddr_storage}
-  alignment _ = #{alignment struct sockaddr_storage}
-  peek = error "peek SockAddr called"
-  poke = pokesa
-
--- | type of 'sin_family'
-type SaFamilyT = #{type sa_family_t}
-
--- | type of 'sin_port'
-type InPortT = #{type in_port_t}
-
--- | peek a @struct sockaddr_in@ data structure
-peekin :: Ptr SockAddr -> IO SockAddr
-peekin p =
-  SockAddrIn
-    <$> #{peek struct sockaddr_in, sin_family} p
-    <*> #{peek struct sockaddr_in, sin_port} p
-    <*> #{peek struct sockaddr_in, sin_addr} p
-
--- | poke a 'SockAddr'
-pokesa :: Ptr SockAddr -> SockAddr -> IO ()
-pokesa p SockAddrIn {..} = do
-  #{poke struct sockaddr_in, sin_family} p sin_family
-  #{poke struct sockaddr_in, sin_port} p sin_port
-  #{poke struct sockaddr_in, sin_addr} p sin_addr
+-- | type of 'ai_addrlen'
+type Socklen = #{type socklen_t}
 
 -- | address information
 --
@@ -309,6 +267,16 @@ addrinfo0 = AddrInfo_
   , ai_next = nullPtr
   }
 
+-- | extract the 'SockAddr' from an 'AddrInfo_' (assuming it's valid)
+addrpair_ :: AddrInfo_ -> AddressLen
+addrpair_ AddrInfo_ {..} = AddressLen ai_addr ai_addrlen
+{-# INLINE addrpair_ #-}
+
+-- | extract the 'SockAddr' from an 'AddrInfo' (assuming it's valid)
+addrpair :: AddrInfo -> IO AddressLen
+addrpair a = withForeignPtr a (peek . castPtr) <&> addrpair_
+{-# INLINE addrpair #-}
+
 foreign import capi unsafe "netdb.h getaddrinfo"
   c_getaddrinfo :: ConstPtr CChar -> ConstPtr CChar -> ConstPtr AddrInfo_ ->
                    Ptr (Ptr AddrInfo_) -> IO GetAddrInfoError
@@ -344,12 +312,6 @@ getaddrinfo node service hints =
           GetAddrInfoError 0 -> peek r >>= newForeignPtr c_freeaddrinfo
           GetAddrInfoError (#{const EAI_SYSTEM}) -> throwErrno "getaddrinfo"
           e -> throwIO e
-
--- | assuming the 'AddrInfo' contains a valid 'SockAddrIn', get the 'SockAddr'
-sockaddrin :: AddrInfo -> IO SockAddr
-sockaddrin l =
-  withForeignPtr l \h ->
-  peek h >>= peekin . ai_addr
 
 foreign import capi unsafe "unistd.h close"
   c_close :: Socket -> IO RN1
@@ -389,12 +351,9 @@ pattern SHUT_RDWR = ShutdownHow #{const SHUT_RDWR}
 -- | Bind a socket to a local address.
 --
 -- Required before 'listen' for server sockets.
-bind :: Socket -> SockAddr -> IO ()
-bind s a =
-  alloca \a' -> do
-    poke a' a
-    mask_ do
-      c_bind s (ConstPtr a') #{size struct sockaddr_storage} >>= okn1_ "bind"
+bind :: Socket -> AddressLen -> IO ()
+bind s a = mask_ do
+  c_bind s (ConstPtr a.aaddr) a.alen >>= okn1_ "bind"
 
 -- | Try to bind to addresses in sequence until one succeeds.
 --
@@ -501,11 +460,6 @@ apeek :: (Storable a) => Ptr a -> AIO a
 apeek = AIO . peek
 {-# INLINE apeek #-}
 
--- | lifted 'peekin'
-apeekin :: Ptr SockAddr -> AIO SockAddr
-apeekin = coerce peekin
-{-# INLINE apeekin #-}
-
 -- | lifted 'mask_'
 amask_ :: AIO a -> AIO a
 amask_ a = underaio \u -> mask_ (u a)
@@ -555,16 +509,14 @@ foreign import capi unsafe "sys/socket.h connect"
 --
 -- For non-blocking sockets, may throw 'empty' before the connection completes.
 -- The caller should wait for writability to detect connection completion.
-connect :: Socket -> SockAddr -> AIO ()
+connect :: Socket -> AddressLen -> AIO ()
 connect s a =
-  aalloca \sa -> do
-    apoke sa a
-    amask_ do
-      c_connect s (ConstPtr sa) #{size struct sockaddr_storage} >>= \case
-        -1 -> ablocking >>= \case
-          True -> empty
-          False -> athrowerrno "connect"
-        _ -> pure ()
+  amask_ do
+    c_connect s (ConstPtr a.aaddr) a.alen >>= \case
+      -1 -> ablocking >>= \case
+        True -> empty
+        False -> athrowerrno "connect"
+      _ -> pure ()
 
 -- | flags for use in 'recv'
 newtype RecvFlags = RecvFlags CInt

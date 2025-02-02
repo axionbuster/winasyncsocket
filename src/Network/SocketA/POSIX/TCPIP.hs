@@ -45,7 +45,6 @@ module Network.SocketA.POSIX.TCPIP
     S.bindfirst2,
     S.listen,
     accept,
-    S.sockaddrin,
     S.shutdown,
     connect,
     recv,
@@ -54,6 +53,8 @@ module Network.SocketA.POSIX.TCPIP
     send,
     sendall,
     sendAll,
+    S.addrpair,
+    S.addrpair_,
   )
 where
 
@@ -155,7 +156,7 @@ accept :: S.Socket -> IO S.Socket
 accept s = async1 evtRead (S.accept s) s
 
 -- | connect a socket to a remote address
-connect :: S.Socket -> S.SockAddr -> IO ()
+connect :: S.Socket -> S.AddressLen -> IO ()
 connect s a = async1 evtWrite (S.connect s a) s
 
 -- | recv some data from a socket
