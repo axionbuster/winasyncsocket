@@ -134,7 +134,7 @@ listen = (`S.listen` 4096)
 -- - callback executes exactly once
 -- - no memory/FD leaks on exceptions
 --
--- //note//: socket must be non-blocking
+-- __note__: socket must be non-blocking
 async1 :: Event -> S.AIO a -> S.Socket -> IO a
 async1 e f h = do
   -- synopsis.

@@ -199,7 +199,7 @@ instance Exception GetAddrInfoError where
 
 -- | a pointer to an address along with its length
 --
--- //SAFETY//: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
+-- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
 -- but it's not tracked. refer to 'withaddrpair' for safe usage
 data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: Socklen }
   deriving stock (Show)
@@ -273,7 +273,7 @@ addrinfo0 = AddrInfo_
 
 -- | extract the 'SockAddr' from an 'AddrInfo_' (assuming it's valid)
 --
--- //SAFETY//: highly unsafe; lifetime is tied to the parent 'AddrInfo_',
+-- __SAFETY__: highly unsafe; lifetime is tied to the parent 'AddrInfo_',
 -- but it's not tracked
 addrpair_ :: AddrInfo_ -> AddressLen
 addrpair_ AddrInfo_ {..} = AddressLen ai_addr ai_addrlen
@@ -281,7 +281,7 @@ addrpair_ AddrInfo_ {..} = AddressLen ai_addr ai_addrlen
 
 -- | extract the 'SockAddr' from an 'AddrInfo' (assuming it's valid)
 --
--- //SAFETY//: highly unsafe; lifetime is tied to the parent 'AddrInfo',
+-- __SAFETY__: highly unsafe; lifetime is tied to the parent 'AddrInfo',
 -- but it's not tracked. use 'withaddrpair' instead if possible
 addrpair :: AddrInfo -> IO AddressLen
 addrpair a = withForeignPtr a (peek . castPtr) <&> addrpair_
