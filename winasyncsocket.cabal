@@ -28,9 +28,7 @@ source-repository head
 
 library
   other-modules:
-      Paths_winasyncsocket
-  autogen-modules:
-      Paths_winasyncsocket
+      Network.SocketA.POSIX.Sock
   hs-source-dirs:
       src
   default-extensions:
@@ -57,8 +55,9 @@ library
   default-language: GHC2021
   if os(windows)
     exposed-modules:
-        Network.SocketA.Windows.Sock
         Network.SocketA.Windows.TCPIP
+    other-modules:
+        Network.SocketA.Windows.Sock
     include-dirs:
         src/Network/SocketA/Windows
     c-sources:
@@ -67,10 +66,9 @@ library
         Win32 >=2.13.4 && <2.14
   if os(linux)
     exposed-modules:
-        Network.SocketA.LinuxEPoll.Sock
         Network.SocketA.LinuxEPoll.TCPIP
-    include-dirs:
-        src/Network/SocketA/LinuxEPoll
+    other-modules:
+        Network.SocketA.LinuxEPoll.Sock
 
 executable winasyncsocket-exe
   other-modules:
@@ -106,6 +104,13 @@ executable winasyncsocket-exe
     main-is: Main.hs
     hs-source-dirs:
         app/linux
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        winasyncsocket
+  if os(darwin) || os(freebsd)
+    main-is: Main.hs
+    hs-source-dirs:
+        app/bsd
     ghc-options: -threaded -rtsopts -with-rtsopts=-N
     build-depends:
         winasyncsocket

@@ -64,7 +64,7 @@ import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Function
 import Foreign.Ptr
 import GHC.Event
-import Network.SocketA.LinuxEPoll.Sock qualified as S
+import Network.SocketA.POSIX.Sock qualified as S
 import System.Posix.Types
 
 -- here Fd is a newtype over a CInt; distinct from FD type from GHC.IO.FD

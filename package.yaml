@@ -55,11 +55,14 @@ library:
   source-dirs: src
   include-dirs: src
   build-tools: hsc2hs
+  other-modules:
+    - Network.SocketA.POSIX.Sock
   when:
     - condition: os(windows)
       exposed-modules:
-        - Network.SocketA.Windows.Sock
         - Network.SocketA.Windows.TCPIP
+      other-modules:
+        - Network.SocketA.Windows.Sock
       c-sources:
         - src/Network/SocketA/Windows/ax.c
       include-dirs:
@@ -68,10 +71,9 @@ library:
         - Win32 >= 2.13.4 && < 2.14
     - condition: os(linux)
       exposed-modules:
-        - Network.SocketA.LinuxEPoll.Sock
         - Network.SocketA.LinuxEPoll.TCPIP
-      include-dirs:
-        - src/Network/SocketA/LinuxEPoll
+      other-modules:
+        - Network.SocketA.LinuxEPoll.Sock
 
 executables:
   winasyncsocket-exe:
@@ -89,6 +91,15 @@ executables:
       - condition: os(linux)
         main:                Main.hs
         source-dirs:         app/linux
+        ghc-options:
+        - -threaded
+        - -rtsopts
+        - -with-rtsopts=-N
+        dependencies:
+        - winasyncsocket
+      - condition: os(darwin) || os(freebsd)
+        main:                Main.hs
+        source-dirs:         app/bsd
         ghc-options:
         - -threaded
         - -rtsopts

@@ -1,19 +1,16 @@
 {- |
-Module      : Network.SocketA.LinuxEPoll.Sock
-Description : Socket operations and types for Linux/epoll
+Module      : Network.SocketA.POSIX.Sock
+Description : Socket operations and types for POSIX systems
 Copyright   : (c) axionbuster, 2025
 License     : BSD-3-Clause
 
-This module provides low-level bindings to POSIX/Linux socket APIs. It includes
-socket operations, constants, and data structures needed for network programming
-on Linux platforms.
+This module provides low-level bindings to POSIX socket APIs. It includes
+socket operations, constants and data structures needed for network programming.
 
-Note that this module specifically targets Linux systems and makes use of Linux-specific
-features like epoll and accept4() for better performance.
-
-All sockets are created in non-blocking mode as this is required for use with epoll.
+All sockets are created in non-blocking mode as this is required for
+this library.
 -}
-module Network.SocketA.LinuxEPoll.Sock
+module Network.SocketA.POSIX.Sock
   ( -- * Types
     Socket(..)
   , AddrFamily(..)
@@ -28,8 +25,10 @@ module Network.SocketA.LinuxEPoll.Sock
   , ShutdownHow(..)
   , AIO(..)
     -- * Patterns
+#if defined(linux_HOST_OS)
   , pattern SOCK_NONBLOCK
   , pattern SOCK_CLOEXEC
+#endif
   , pattern SOCK_STREAM
   , pattern AF_INET
   , pattern AF_INET6
@@ -87,10 +86,6 @@ import Foreign.C.String
 import Foreign.C.Types
 import System.IO.Unsafe
 import System.Posix.Types
-
--- we don't use sys/epoll.h, but only include it to prevent
--- compilation when epoll is not available
-#include <sys/epoll.h>
 
 #include <fcntl.h>
 #include <netdb.h>
@@ -162,15 +157,19 @@ foreign import capi unsafe "sys/socket.h socket"
 -- The socket is always created in non-blocking mode as required for epoll.
 -- May throw 'GetAddrInfoError' on failure.
 socket :: AddrFamily -> SocketType -> Protocol -> IO Socket
-socket d s p =
-  c_socket d (s .|. SOCK_NONBLOCK) p
-    >>= okn1 "socket" (pure . Socket . unrn1)
+socket d s p = mask_ do
+  t <- c_socket d s p >>= okn1 "socket" (pure . Socket . unrn1)
+  setnonblock t $> t
 
-pattern SOCK_NONBLOCK, SOCK_CLOEXEC, SOCK_STREAM :: SocketType
+#if defined(linux_HOST_OS)
+pattern SOCK_NONBLOCK, SOCK_CLOEXEC :: SocketType
 -- | non-blocking socket flag
 pattern SOCK_NONBLOCK = SocketType #{const SOCK_NONBLOCK}
 -- | close-on-exec socket flag
 pattern SOCK_CLOEXEC = SocketType #{const SOCK_CLOEXEC}
+#endif
+
+pattern SOCK_STREAM :: SocketType
 -- | stream socket
 pattern SOCK_STREAM = SocketType #{const SOCK_STREAM}
 
