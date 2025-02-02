@@ -59,7 +59,6 @@ client = do
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
     traceIO "connecting to server (POSIX)"
-    sockaddrin addr >>= bind sock
     sockaddrin addr >>= connect sock
     hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
     forever do
