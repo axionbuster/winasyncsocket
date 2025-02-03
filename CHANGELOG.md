@@ -13,6 +13,7 @@ and this project adheres to the
 - Integrated with [unliftio-core] for better monad transformer support.
   Feature flag `unliftio` is available to enable this feature.
   The flag is enabled by default.
+- Bump `base` lower bound from `4.7` (GHC 7) to `4.17` (GHC 9.4.8).
 - Fixed bug in `sendall` function on POSIX platforms
 - Made `TCPIP` modules internal
 - Added documentation improvements

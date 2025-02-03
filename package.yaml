@@ -48,7 +48,7 @@ flags:
     manual: true
 
 dependencies:
-- base >= 4.7 && < 5
+- base >= 4.17 && < 5
 - bytestring >= 0.12.1 && < 0.13
 
 when:

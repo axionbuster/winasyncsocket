@@ -61,7 +61,7 @@ library
   build-tools:
       hsc2hs
   build-depends:
-      base >=4.7 && <5
+      base >=4.17 && <5
     , bytestring >=0.12.1 && <0.13
   default-language: GHC2021
   if flag(unliftio)
@@ -109,7 +109,7 @@ executable winasyncsocket-exe
       ViewPatterns
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      base >=4.17 && <5
     , bytestring >=0.12.1 && <0.13
     , winasyncsocket
   default-language: GHC2021
