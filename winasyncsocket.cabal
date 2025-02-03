@@ -7,7 +7,7 @@ cabal-version: 2.2
 name:           winasyncsocket
 version:        0.2.0.0
 synopsis:       Asynchronous Socket Programming in Haskell
-description:    Cross-platform asynchronous socket programming library utilizing native I/O facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration with GHC's I/O manager for high-performance network operations.
+description:    Cross-platform asynchronous socket programming library utilizing native I\/O facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration with GHC's I\/O manager for high-performance network operations.
 category:       Network, System
 homepage:       https://github.com/axionbuster/winasyncsocket#readme
 bug-reports:    https://github.com/axionbuster/winasyncsocket/issues

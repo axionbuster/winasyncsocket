@@ -36,9 +36,9 @@ category:            Network, System
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
 description: >
-  Cross-platform asynchronous socket programming library utilizing native I/O
+  Cross-platform asynchronous socket programming library utilizing native I\/O
   facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD.
-  Provides direct integration with GHC's I/O manager for high-performance
+  Provides direct integration with GHC's I\/O manager for high-performance
   network operations.
 
 flags:
