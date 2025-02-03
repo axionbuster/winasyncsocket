@@ -129,7 +129,7 @@ startup = pure ()
 -- so, because it throws a different exception, we need to catch it and
 -- rethrow it as a user error
 
--- | Get address information for a given host and port
+-- | Get address information for a given node, service, and hints
 getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO AddrInfo
 getaddrinfo a b c =
   catch
