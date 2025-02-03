@@ -26,10 +26,16 @@ source-repository head
   type: git
   location: https://github.com/axionbuster/winasyncsocket
 
+flag unliftio
+  description: Enable MonadUnliftIO integration (recommended)
+  manual: True
+  default: True
+
 library
   exposed-modules:
       Network.SocketA
   other-modules:
+      Network.SocketA.Types
       Paths_winasyncsocket
   autogen-modules:
       Paths_winasyncsocket
@@ -58,6 +64,12 @@ library
       base >=4.7 && <5
     , bytestring >=0.12.1 && <0.13
   default-language: GHC2021
+  if flag(unliftio)
+    build-depends:
+        unliftio-core
+  if flag(unliftio)
+    exposed-modules:
+        Network.SocketA.Unlift
   if os(windows)
     exposed-modules:
         Network.SocketA.Windows.TCPIP
@@ -103,5 +115,8 @@ executable winasyncsocket-exe
     , bytestring >=0.12.1 && <0.13
     , winasyncsocket
   default-language: GHC2021
+  if flag(unliftio)
+    build-depends:
+        unliftio-core
   if os(windows)
     ghc-options: -with-rtsopts=--io-manager=native

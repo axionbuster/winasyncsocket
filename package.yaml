@@ -40,9 +40,20 @@ description: >
   IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration
   with GHC's I/O manager for high-performance network operations.
 
+flags:
+  unliftio:
+    description: Enable MonadUnliftIO integration (recommended)
+    default: true
+    manual: true
+
 dependencies:
 - base >= 4.7 && < 5
 - bytestring >= 0.12.1 && < 0.13
+
+when:
+- condition: flag(unliftio)
+  dependencies:
+  - unliftio-core
 
 ghc-options:
 - -Wall
@@ -62,6 +73,9 @@ library:
   exposed-modules:
     - Network.SocketA
   when:
+    - condition: flag(unliftio)
+      exposed-modules:
+        - Network.SocketA.Unlift
     - condition: os(windows)
       then:
         exposed-modules:

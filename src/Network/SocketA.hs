@@ -11,37 +11,8 @@
 -- across Windows and POSIX platforms through direct exports of
 -- platform-specific implementations.
 module Network.SocketA
-  ( -- * Types
-    AddrFamily (..),
-    AddrInfo,
-    AddrInfo_ (..),
-#if defined(mingw32_HOST_OS)
-    ADDRINFOW (..),
-    SOCKET,
-#endif
-    AddrLen,
-    SocketError,
-    Protocol (..),
-    ShutdownHow (..),
-    Socket,
-    SocketType (..),
-
-    -- * Constants and Patterns
-#if defined(linux_HOST_OS)
-    pattern SOCK_NONBLOCK,
-    pattern SOCK_CLOEXEC,
-#endif
-    pattern SOCK_STREAM,
-    pattern AF_INET,
-    pattern AF_INET6,
-    pattern IPPROTO_TCP,
-    pattern SHUT_RD,
-    pattern SHUT_WR,
-    pattern SHUT_RDWR,
-    pattern SD_RECEIVE,
-    pattern SD_SEND,
-    pattern SD_BOTH,
-    pattern INVALID_SOCKET,
+  ( -- * Types, Constants, and Patterns
+    module Network.SocketA.Types,
 
     -- * Operations
     startup,
@@ -66,6 +37,7 @@ module Network.SocketA
 where
 
 import Control.Exception
+import Network.SocketA.Types
 #if defined(mingw32_HOST_OS)
 import Network.SocketA.Windows.TCPIP
 #else
@@ -76,43 +48,6 @@ import Network.SocketA.POSIX.TCPIP qualified as S
 -- | Safely work with a new socket, closing it automatically when done
 withsocket :: AddrFamily -> SocketType -> Protocol -> (Socket -> IO a) -> IO a
 withsocket af st pr = bracket (socket af st pr) close
-
-#if defined(mingw32_HOST_OS)
--- | A node in the address information list
-type AddrInfo_ = ADDRINFOW
-
--- Windows and POSIX use different terms for the same thing (shutdown how)
-
-pattern SHUT_RD, SHUT_WR, SHUT_RDWR :: ShutdownHow
-
--- | Shutdown the receive channel; alias for 'SD_RECEIVE'
-pattern SHUT_RD = SD_RECEIVE
-
--- | Shutdown the send channel; alias for 'SD_SEND'
-pattern SHUT_WR = SD_SEND
-
--- | Shutdown both channels; alias for 'SD_BOTH'
-pattern SHUT_RDWR = SD_BOTH
-
-#else
--- | Socket exception type; in POSIX systems, this is an alias for 'IOError'
--- but in Windows, it is its own type
---
--- Currently, you are not allowed to inspect the error code in either
--- platform, so you should not rely on the error code for error handling.
--- Socket errors need to be treated as completely opaque, for now.
-type SocketError = IOError
-
-pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
-
--- | Shutdown the receive channel; alias for 'SHUT_RD'
-pattern SD_RECEIVE = SHUT_RD
-
--- | Shutdown the send channel; alias for 'SHUT_WR'
-pattern SD_SEND = SHUT_WR
-
--- | Shutdown both channels; alias for 'SHUT_RDWR'
-pattern SD_BOTH = SHUT_RDWR
 
 -- | Initialize Windows Sockets on Windows; no-op on POSIX
 --
@@ -126,8 +61,9 @@ startup :: IO ()
 startup = pure ()
 {-# INLINE startup #-}
 
--- so, because it throws a different exception, we need to catch it and
--- rethrow it as a user error
+#if !defined(mingw32_HOST_OS)
+-- so, because it throws a different exception than IOError,
+-- we need to catch it and rethrow it as a user error (POSIX only)
 
 -- | Get address information for a given node, service, and hints
 getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO AddrInfo
