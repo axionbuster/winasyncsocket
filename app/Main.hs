@@ -13,6 +13,10 @@ import System.IO
 withColor :: String -> String -> String
 withColor color text = color ++ "\ESC[0m" ++ text ++ "\ESC[0m"
 
+theaddr, theport :: String
+theaddr = "127.0.0.1"
+theport = "40001"
+
 server :: IO ()
 server = do
   let ai1 =
@@ -23,8 +27,8 @@ server = do
           }
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
 
-  traceIO "starting server on localhost:50123"
-  addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
+  traceIO $ "starting server on " ++ theaddr ++ ":" ++ theport
+  addr <- getaddrinfo theaddr theport $ Just ai1
   bracket mksocket close \sock -> do
     withaddrpair addr do bind sock
     listen sock
@@ -56,7 +60,7 @@ client = do
             ai_family = AF_INET
           }
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
-  addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
+  addr <- getaddrinfo theaddr theport $ Just ai1
   bracket mksocket close \sock -> do
     traceIO "connecting to server"
     withaddrpair addr do connect sock
