@@ -7,10 +7,10 @@ cabal-version: 2.2
 name:           winasyncsocket
 version:        0.1.0.0
 synopsis:       Asynchronous Socket Programming in Haskell
-description:    Please see the README on GitHub at <https://github.com/githubuser/winasyncsocket#readme>
+description:    Cross-platform asynchronous socket programming library utilizing native I/O facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration with GHC's I/O manager for high-performance network operations.
 category:       Network, System
-homepage:       https://github.com/githubuser/winasyncsocket#readme
-bug-reports:    https://github.com/githubuser/winasyncsocket/issues
+homepage:       https://github.com/axionbuster/winasyncsocket#readme
+bug-reports:    https://github.com/axionbuster/winasyncsocket/issues
 author:         axionbuster
 maintainer:     axionbuster@gmail.com
 copyright:      2025 axionbuster
@@ -24,7 +24,7 @@ extra-doc-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/winasyncsocket
+  location: https://github.com/axionbuster/winasyncsocket
 
 library
   exposed-modules:
@@ -36,7 +36,6 @@ library
   hs-source-dirs:
       src
   default-extensions:
-      AllowAmbiguousTypes
       BlockArguments
       DataKinds
       DeriveAnyClass
@@ -49,7 +48,6 @@ library
       OverloadedRecordDot
       PatternSynonyms
       RecordWildCards
-      TypeFamilies
       ViewPatterns
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   include-dirs:
@@ -86,7 +84,6 @@ executable winasyncsocket-exe
   hs-source-dirs:
       app
   default-extensions:
-      AllowAmbiguousTypes
       BlockArguments
       DataKinds
       DeriveAnyClass
@@ -99,7 +96,6 @@ executable winasyncsocket-exe
       OverloadedRecordDot
       PatternSynonyms
       RecordWildCards
-      TypeFamilies
       ViewPatterns
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
