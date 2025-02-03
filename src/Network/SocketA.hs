@@ -39,11 +39,12 @@ module Network.SocketA
   )
 where
 
-import Control.Exception (bracket, catch)
+import Control.Exception
 #if defined(mingw32_HOST_OS)
 import Network.SocketA.Windows.TCPIP
 #else
-import Network.SocketA.POSIX.TCPIP
+import Network.SocketA.POSIX.TCPIP hiding (getaddrinfo)
+import Network.SocketA.POSIX.TCPIP qualified as S
 #endif
 
 -- | Safely work with a new socket, closing it automatically when done
@@ -58,8 +59,10 @@ type AddrInfo_ = ADDRINFOW
 -- | Socket exception type
 type SocketError = IOError
 
--- | A node in the address information list
-type AddrInfo_ = S.AddrInfo_
+-- | (For POSIX systems, this is a no-op)
+startup :: IO ()
+startup = pure ()
+{-# INLINE startup #-}
 
 -- so, because it throws a different exception, we need to catch it and
 -- rethrow it as a user error
