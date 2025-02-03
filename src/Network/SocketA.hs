@@ -1,3 +1,6 @@
+-- different platforms have different opaqueness levels
+{-# OPTIONS_GHC -Wno-dodgy-exports #-}
+
 -- |
 -- Module      : Network.SocketA
 -- Description : Cross-platform asynchronous socket programming interface
@@ -9,18 +12,35 @@
 -- platform-specific implementations.
 module Network.SocketA
   ( -- * Types
-    AddrFamily,
-    AddrInfo,
-    AddrInfo_,
-    AddressLen,
-    SocketError,
-    Protocol,
-    ShutdownHow,
+    AddrFamily (..),
+    AddrInfo (..),
+    AddrInfo_ (..),
+    AddressLen (..),
+    SocketError (..),
+    Protocol (..),
+    ShutdownHow (..),
     Socket,
-    SocketType,
+    SocketType (..),
+#if defined(mingw32_HOST_OS)
+    SocketError (..),
+#endif
+
+    -- * Constants and Patterns
+#if defined(linux_HOST_OS)
+    pattern S.SOCK_NONBLOCK,
+    pattern S.SOCK_CLOEXEC,
+#endif
+    pattern S.SOCK_STREAM,
+    pattern S.AF_INET,
+    pattern S.AF_INET6,
+    pattern S.IPPROTO_TCP,
+    pattern S.SHUT_RD,
+    pattern S.SHUT_WR,
+    pattern S.SHUT_RDWR,
 
     -- * Operations
     startup,
+    addrinfo0,
     socket,
     bind,
     listen,
@@ -55,6 +75,11 @@ withsocket af st pr = bracket (socket af st pr) close
 -- | A node in the address information list
 type AddrInfo_ = ADDRINFOW
 
+-- | An empty address information node
+addrinfo0 :: AddrInfo_
+addrinfo0 = addrinfow0
+{-# INLINE addrinfo0 #-}
+
 #else
 -- | Socket exception type
 type SocketError = IOError
@@ -76,5 +101,8 @@ getaddrinfo a b c =
 #endif
 
 -- | Catch socket exceptions
+--
+-- - Windows: 'SocketError', which is its own type
+-- - POSIX: 'IOError', which is a type alias for 'IOException'
 catchsocket :: IO a -> (SocketError -> IO a) -> IO a
 catchsocket a b = catch a \(e :: SocketError) -> b e

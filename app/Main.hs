@@ -2,20 +2,19 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.Fix
 import Data.ByteString qualified as B
 import Data.ByteString.Char8 qualified as C
-import Data.Function
 import Debug.Trace
-import Network.SocketA.POSIX.TCPIP
+import Network.SocketA
 import System.Environment
 import System.IO
 
 withColor :: String -> String -> String
-withColor color text = color ++ text ++ "\ESC[0m"
+withColor color text = color ++ "\ESC[0m" ++ text ++ "\ESC[0m"
 
 server :: IO ()
 server = do
-  hPutStrLn stderr "starting server on localhost:50123 (POSIX)"
   let ai1 =
         addrinfo0
           { ai_socktype = SOCK_STREAM,
@@ -23,6 +22,8 @@ server = do
             ai_family = AF_INET
           }
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
+
+  traceIO "starting server on localhost:50123"
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
     withaddrpair addr do bind sock
@@ -35,11 +36,10 @@ server = do
         do
           \c -> do
             traceIO (withColor "\ESC[32m" "client connected")
-            handle (\(e :: IOException) -> traceShowM e) do
-              -- Echo loop
+            handle (\(e :: IOException) -> hPrint stderr e) do
               fix \loop -> do
                 traceIO "waiting for message"
-                msg <- recv c 10 -- make small so i can test that it works
+                msg <- recv c 1024
                 traceIO "message received"
                 when (B.length msg > 0) do
                   traceIO "sending message back"
@@ -58,25 +58,25 @@ client = do
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
-    traceIO "connecting to server (POSIX)"
+    traceIO "connecting to server"
     withaddrpair addr do connect sock
-    hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
+    traceIO "connected. type messages to send (Ctrl+C to exit)"
     forever do
       line <- C.getLine
       sendall sock line
-      resp <- recvall sock $ B.length line
+      resp <- recv sock 1024
       C.putStrLn resp
 
 main :: IO ()
 main = do
+  startup
   args <- getArgs
   catch
     case args of
       ["--server"] -> server
       ["--client"] -> client
       _ -> do
-        hPutStrLn stderr "Usage: ... --server|--client"
+        traceIO "Usage: winasyncsocket-exe --server|--client"
         error "Invalid arguments"
-    do
-      \(e :: SomeException) ->
-        putStrLn $ "error: " ++ displayException e
+    \(e :: SomeException) ->
+      putStrLn $ "error: " ++ displayException e
