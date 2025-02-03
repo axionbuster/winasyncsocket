@@ -1,3 +1,12 @@
+-- |
+-- Module      : Network.SocketA.Types
+-- Description : Types and constants for cross-platform socket programming
+-- Copyright   : (c) axionbuster, 2025
+-- License     : BSD-3-Clause
+--
+-- This module provides common types and constants used in socket programming
+-- across Windows and POSIX platforms. It handles the platform-specific 
+-- differences in types and naming conventions.
 module Network.SocketA.Types
   ( -- * Types
     AddrFamily (..),

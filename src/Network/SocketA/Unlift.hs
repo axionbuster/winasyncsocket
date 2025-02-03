@@ -35,77 +35,77 @@ import Data.ByteString (ByteString)
 import Network.SocketA qualified as S
 import Network.SocketA.Types
 
--- | Lifted version of 'S.startup'
+-- | Lifted version of 'Network.SocketA.startup'
 startup :: (MonadIO m) => m ()
 startup = liftIO S.startup
 {-# INLINE startup #-}
 
--- | Lifted version of 'S.socket'
+-- | Lifted version of 'Network.SocketA.socket'
 socket :: (MonadIO m) => AddrFamily -> SocketType -> Protocol -> m Socket
 socket = ((liftIO .) .) . S.socket
 {-# INLINE socket #-}
 
--- | Lifted version of 'S.bind'
+-- | Lifted version of 'Network.SocketA.bind'
 bind :: (MonadIO m) => Socket -> AddrLen -> m ()
 bind = (liftIO .) . S.bind
 {-# INLINE bind #-}
 
--- | Lifted version of 'S.listen'
+-- | Lifted version of 'Network.SocketA.listen'
 listen :: (MonadIO m) => Socket -> m ()
 listen = liftIO . S.listen
 {-# INLINE listen #-}
 
--- | Lifted version of 'S.accept'
+-- | Lifted version of 'Network.SocketA.accept'
 accept :: (MonadIO m) => Socket -> m Socket
 accept = liftIO . S.accept
 {-# INLINE accept #-}
 
--- | Lifted version of 'S.connect'
+-- | Lifted version of 'Network.SocketA.connect'
 connect :: (MonadIO m) => Socket -> AddrLen -> m ()
 connect = (liftIO .) . S.connect
 {-# INLINE connect #-}
 
--- | Lifted version of 'S.recv'
+-- | Lifted version of 'Network.SocketA.recv'
 recv :: (MonadIO m) => Socket -> Int -> m ByteString
 recv = (liftIO .) . S.recv
 {-# INLINE recv #-}
 
--- | Lifted version of 'S.recvall'
+-- | Lifted version of 'Network.SocketA.recvall'
 recvall :: (MonadIO m) => Socket -> Int -> m ByteString
 recvall = (liftIO .) . S.recvall
 {-# INLINE recvall #-}
 
--- | Lifted version of 'S.send'
+-- | Lifted version of 'Network.SocketA.send'
 send :: (MonadIO m) => Socket -> ByteString -> m Int
 send = (liftIO .) . S.send
 {-# INLINE send #-}
 
--- | Lifted version of 'S.sendall'
+-- | Lifted version of 'Network.SocketA.sendall'
 sendall :: (MonadIO m) => Socket -> ByteString -> m ()
 sendall = (liftIO .) . S.sendall
 {-# INLINE sendall #-}
 
--- | Lifted version of 'S.shutdown'
+-- | Lifted version of 'Network.SocketA.shutdown'
 shutdown :: (MonadIO m) => Socket -> ShutdownHow -> m ()
 shutdown = (liftIO .) . S.shutdown
 {-# INLINE shutdown #-}
 
--- | Lifted version of 'S.close'
+-- | Lifted version of 'Network.SocketA.close'
 close :: (MonadIO m) => Socket -> m ()
 close = liftIO . S.close
 {-# INLINE close #-}
 
--- | Lifted version of 'S.getaddrinfo'
+-- | Lifted version of 'Network.SocketA.getaddrinfo'
 getaddrinfo :: (MonadIO m) => String -> String -> Maybe AddrInfo_ -> m AddrInfo
 getaddrinfo = ((liftIO .) .) . S.getaddrinfo
 {-# INLINE getaddrinfo #-}
 
--- | Unlifted version of 'S.withaddrlen'
+-- | Unlifted version of 'Network.SocketA.withaddrlen'
 withaddrlen :: (MonadUnliftIO m) => AddrInfo -> (AddrLen -> m a) -> m a
 withaddrlen ai f = withRunInIO \run -> S.withaddrlen ai (run . f)
 {-# INLINE withaddrlen #-}
 
--- | Unlifted version of 'S.withsocket'
+-- | Unlifted version of 'Network.SocketA.withsocket'
 withsocket ::
   (MonadUnliftIO m) =>
   AddrFamily ->
@@ -116,12 +116,12 @@ withsocket ::
 withsocket af st pr f = withRunInIO \run -> S.withsocket af st pr (run . f)
 {-# INLINE withsocket #-}
 
--- | Unlifted version of 'S.catchsocket'
+-- | Unlifted version of 'Network.SocketA.catchsocket'
 catchsocket :: (MonadUnliftIO m) => m a -> (SocketError -> m a) -> m a
 catchsocket a f = withRunInIO \run -> S.catchsocket (run a) (run . f)
 {-# INLINE catchsocket #-}
 
--- | Unlifted version of 'S.handlesocket'
+-- | Unlifted version of 'Network.SocketA.handlesocket'
 handlesocket :: (MonadUnliftIO m) => (SocketError -> m a) -> m a -> m a
 handlesocket f a = withRunInIO \run -> S.handlesocket (run . f) (run a)
 {-# INLINE handlesocket #-}
