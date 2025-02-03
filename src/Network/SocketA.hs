@@ -44,11 +44,11 @@ import Network.SocketA.Windows.TCPIP
 import Network.SocketA.POSIX.TCPIP hiding (getaddrinfo)
 import Network.SocketA.POSIX.TCPIP qualified as S
 #endif
-
 -- | Safely work with a new socket, closing it automatically when done
 withsocket :: AddrFamily -> SocketType -> Protocol -> (Socket -> IO a) -> IO a
 withsocket af st pr = bracket (socket af st pr) close
 
+#if !defined(mingw32_HOST_OS)
 -- | Initialize Windows Sockets on Windows; no-op on POSIX
 --
 -- It's OK to call this function multiple times
@@ -61,9 +61,9 @@ startup :: IO ()
 startup = pure ()
 {-# INLINE startup #-}
 
-#if !defined(mingw32_HOST_OS)
--- so, because it throws a different exception than IOError,
--- we need to catch it and rethrow it as a user error (POSIX only)
+-- so, because getaddrinfo throws its own kind of exception, we need to
+-- catch it and rethrow it as IOError (POSIX only)
+-- (on Windows, getaddrinfo throws a SocketError, so we don't need to do this)
 
 -- | Get address information for a given node, service, and hints
 getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO AddrInfo

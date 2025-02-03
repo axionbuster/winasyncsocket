@@ -1,3 +1,6 @@
+-- different platforms have different opaqueness levels
+{-# OPTIONS_GHC -Wno-dodgy-exports #-}
+
 -- |
 -- Module      : Network.SocketA.Types
 -- Description : Types and constants for cross-platform socket programming
