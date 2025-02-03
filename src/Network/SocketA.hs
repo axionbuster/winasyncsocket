@@ -18,6 +18,7 @@ native async I\/O mechanisms.
 module Network.SocketA (Platform (..), Networking (..)) where
 
 #if defined(mingw32_HOST_OS)
+import Control.Exception
 import Network.SocketA.Windows.TCPIP qualified as S
 #else
 import Control.Exception
