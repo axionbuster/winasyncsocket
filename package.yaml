@@ -1,5 +1,5 @@
 name:                winasyncsocket
-version:             0.1.0.0
+version:             0.2.0.0
 github:              "axionbuster/winasyncsocket"
 license:             BSD-3-Clause
 author:              "axionbuster"
@@ -36,9 +36,10 @@ category:            Network, System
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
 description: >
-  Cross-platform asynchronous socket programming library utilizing native I/O facilities:
-  IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration
-  with GHC's I/O manager for high-performance network operations.
+  Cross-platform asynchronous socket programming library utilizing native I/O
+  facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD.
+  Provides direct integration with GHC's I/O manager for high-performance
+  network operations.
 
 flags:
   unliftio:
@@ -53,7 +54,7 @@ dependencies:
 when:
 - condition: flag(unliftio)
   dependencies:
-  - unliftio-core
+  - unliftio-core >= 0.2.0 && < 0.3
 
 ghc-options:
 - -Wall
@@ -78,9 +79,8 @@ library:
         - Network.SocketA.Unlift
     - condition: os(windows)
       then:
-        exposed-modules:
-          - Network.SocketA.Windows.TCPIP
         other-modules:
+          - Network.SocketA.Windows.TCPIP
           - Network.SocketA.Windows.Sock
         c-sources:
           - src/Network/SocketA/Windows/ax.c
@@ -89,9 +89,8 @@ library:
         dependencies:
           - Win32 >= 2.13.4 && < 2.14
       else:
-        exposed-modules:
-          - Network.SocketA.POSIX.TCPIP
         other-modules:
+          - Network.SocketA.POSIX.TCPIP
           - Network.SocketA.POSIX.Sock
 
 executables:

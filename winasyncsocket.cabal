@@ -5,7 +5,7 @@ cabal-version: 2.2
 -- see: https://github.com/sol/hpack
 
 name:           winasyncsocket
-version:        0.1.0.0
+version:        0.2.0.0
 synopsis:       Asynchronous Socket Programming in Haskell
 description:    Cross-platform asynchronous socket programming library utilizing native I/O facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration with GHC's I/O manager for high-performance network operations.
 category:       Network, System
@@ -66,14 +66,13 @@ library
   default-language: GHC2021
   if flag(unliftio)
     build-depends:
-        unliftio-core
+        unliftio-core >=0.2.0 && <0.3
   if flag(unliftio)
     exposed-modules:
         Network.SocketA.Unlift
   if os(windows)
-    exposed-modules:
-        Network.SocketA.Windows.TCPIP
     other-modules:
+        Network.SocketA.Windows.TCPIP
         Network.SocketA.Windows.Sock
     include-dirs:
         src/Network/SocketA/Windows
@@ -82,9 +81,8 @@ library
     build-depends:
         Win32 >=2.13.4 && <2.14
   else
-    exposed-modules:
-        Network.SocketA.POSIX.TCPIP
     other-modules:
+        Network.SocketA.POSIX.TCPIP
         Network.SocketA.POSIX.Sock
 
 executable winasyncsocket-exe
@@ -117,6 +115,6 @@ executable winasyncsocket-exe
   default-language: GHC2021
   if flag(unliftio)
     build-depends:
-        unliftio-core
+        unliftio-core >=0.2.0 && <0.3
   if os(windows)
     ghc-options: -with-rtsopts=--io-manager=native

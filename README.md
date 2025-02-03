@@ -21,6 +21,12 @@ While the package is named `winasyncsocket` due to its initial focus on Windows,
 - Asynchronous TCP operations (accept, connect, send, receive)
 - Platform-specific optimizations and features when available
 
+## Important Notes
+
+### Windows Users
+
+When using this package on Windows, you must compile your program with the GHC option `-with-rtsopts=--io-manager=native`. Without this option, socket operations may stall indefinitely. Add this to your project's GHC options:
+
 ## Compatibility Note
 
 While some function names match those in the "network" package, this package is not a drop-in replacement. The API is designed to leverage platform-specific asynchronous I\/O models for maximum performance.

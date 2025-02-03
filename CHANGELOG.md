@@ -8,6 +8,17 @@ and this project adheres to the
 
 ## Unreleased
 
+## 0.2.0.0 - 2025-02-03
+
+- Integrated with [unliftio-core] for better monad transformer support.
+  Feature flag `unliftio` is available to enable this feature.
+  The flag is enabled by default.
+- Fixed bug in `sendall` function on POSIX platforms
+- Made `TCPIP` modules internal
+- Added documentation improvements
+
+[unliftio-core]: https://hackage.haskell.org/package/unliftio-core
+
 ## 0.1.0.0 - 2025-02-02
 
 - First draft of the package
