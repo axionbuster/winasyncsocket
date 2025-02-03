@@ -58,6 +58,8 @@ library:
   source-dirs: src
   include-dirs: src
   build-tools: hsc2hs
+  exposed-modules:
+    - Network.SocketA
   when:
     - condition: os(windows)
       then:
