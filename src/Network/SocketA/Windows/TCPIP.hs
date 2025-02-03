@@ -127,6 +127,8 @@ globalvtable = unsafePerformIO do
 
 -- | Initialize Windows Sockets on Windows; no-op on POSIX
 --
+-- It's OK to call this function multiple times
+--
 -- Socket operations will fail if this function is not called on Windows
 --
 -- It is recommended to call this function before any other socket operations

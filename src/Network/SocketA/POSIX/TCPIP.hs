@@ -203,7 +203,7 @@ recv s a = createAndTrim a \p ->
       f = fromIntegral <$> S.recv s q b S.recvflags0
    in async1 evtRead f s
 
--- | send some data to a socket
+-- | attempt to send the 'ByteString' and measure how many bytes were sent
 send :: S.Socket -> ByteString -> IO Int
 send s b = unsafeUseAsCStringLen b \(p, fromIntegral -> a) ->
   let q = castPtr p

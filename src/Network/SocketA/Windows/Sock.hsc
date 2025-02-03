@@ -227,7 +227,7 @@ newtype SOCKET = SOCKET { unsocket :: WordPtr }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
 
--- | a placeholder socket number
+-- | invalid socket handle
 pattern INVALID_SOCKET :: SOCKET
 pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 
@@ -726,6 +726,8 @@ loadvt s = do
 
 -- | what gets disabled when a socket is 'shutdown'. prefix is @SD_@
 newtype ShutdownHow = ShutdownHow CInt
+  deriving (Show, Eq)
+  deriving (Storable, Bits, FiniteBits) via (CInt)
 
 pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
 -- | disable 'recv'
