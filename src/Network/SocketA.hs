@@ -5,8 +5,8 @@
 -- License     : BSD-3-Clause
 --
 -- This module provides a unified interface for asynchronous socket programming
--- across Windows and POSIX platforms through direct exports of platform-specific
--- implementations.
+-- across Windows and POSIX platforms through direct exports of
+-- platform-specific implementations.
 module Network.SocketA
   ( -- * Types
     AddrFamily,
