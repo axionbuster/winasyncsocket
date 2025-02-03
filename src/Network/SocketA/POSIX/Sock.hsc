@@ -37,11 +37,6 @@ module Network.SocketA.POSIX.Sock
   , pattern SHUT_WR
   , pattern SHUT_RDWR
   , pattern INVALID_SOCKET
-  , pattern SOCKET_ERROR
-  , pattern Success
-  , pattern NotSupported
-  , pattern ConnectionReset
-  , pattern InProgress
     -- * Operations
   , socket
   , close
@@ -103,7 +98,7 @@ newtype Socket = Socket { unsocket :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
 -- | Socket address family\/domain identifier (AF_*)
-newtype AddrFamily = AddrFamily { undomain :: CInt }
+newtype AddrFamily = AddrFamily { unaddrfamily :: CInt }
   deriving newtype (Eq, Storable, Bits, FiniteBits)
   deriving stock (Show)
 -- | Socket type identifier (SOCK_*)
@@ -143,32 +138,6 @@ pattern INVALID_SOCKET = Socket (-1)
 newtype RN1 = RN1 { unrn1 :: CInt }
   deriving newtype (Show, Eq, Num)
 
--- | no error
-pattern Success :: Errno
-pattern Success = Errno 0
-
--- | check error by calling
---
---  - 'getErrno' on POSIX
---  - 'WSAGetLastError' on Windows
---
--- note: all exported functions already call WSAGetLastError to report the
--- actual error code, so user code should not expect to get this error
-pattern SOCKET_ERROR :: Errno
-pattern SOCKET_ERROR = Errno (-1)
-
--- | operation is not supported
-pattern NotSupported :: Errno
-pattern NotSupported = Errno #{const ENOTSUP}
-
--- | connection has been reset
-pattern ConnectionReset :: Errno
-pattern ConnectionReset = Errno #{const ECONNRESET}
-
--- | not an error; operation will complete in the background (POSIX)
-pattern InProgress :: Errno
-pattern InProgress = Errno #{const EINPROGRESS}
-
 -- perform the action unless the number is -1. if it
 -- is, inspect errno immediately and then throw
 okn1 :: String -> (RN1 -> IO a) -> RN1 -> IO a
@@ -198,9 +167,9 @@ socket d s p = mask_ do
 
 #if defined(linux_HOST_OS)
 pattern SOCK_NONBLOCK, SOCK_CLOEXEC :: SocketType
--- | non-blocking socket flag
+-- | non-blocking socket flag (Linux only)
 pattern SOCK_NONBLOCK = SocketType #{const SOCK_NONBLOCK}
--- | close-on-exec socket flag
+-- | close-on-exec socket flag (Linux only)
 pattern SOCK_CLOEXEC = SocketType #{const SOCK_CLOEXEC}
 #endif
 
@@ -286,9 +255,9 @@ instance Storable AddrInfo_ where
       , ai_canonname = canonname
       , ai_next = next
       }
-    poke p AddrInfo_ {..} = do
+  poke p AddrInfo_ {..} = do
     #{poke struct addrinfo, ai_flags} p (unaddrflag ai_flags)
-    #{poke struct addrinfo, ai_family} p (undomain ai_family)
+    #{poke struct addrinfo, ai_family} p (unaddrfamily ai_family)
     #{poke struct addrinfo, ai_socktype} p (unsockettype ai_socktype)
     #{poke struct addrinfo, ai_protocol} p (unprotocol ai_protocol)
     #{poke struct addrinfo, ai_addrlen} p ai_addrlen
@@ -341,16 +310,13 @@ foreign import capi unsafe "netdb.h gai_strerror"
 
 -- | a managed 'AddrInfo_' list (head only); never NULL
 --
--- to get the address for use with 'bind', use 'sockaddrin'
+-- this is an opaque type in Windows
+--
+-- use 'withaddrlen' to safely extract the address and length
 type AddrInfo = ForeignPtr AddrInfo_
 
 -- | Lookup network addresses. This is a high-level wrapper around
 -- the @getaddrinfo(3)@ system call.
---
--- if it fails, it throws a 'GetAddrInfoError' or 'IOError'
---
--- you can use 'addrinfo0' as a default 'AddrInfo_' value, and
--- use 'sockaddrin' to extract the 'SockAddr' from the returned 'AddrInfo'
 getaddrinfo :: String -> String -> Maybe AddrInfo_ -> IO AddrInfo
 getaddrinfo node service hints =
   withCString node \(ConstPtr -> n) ->

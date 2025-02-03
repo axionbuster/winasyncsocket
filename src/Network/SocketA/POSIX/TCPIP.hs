@@ -36,6 +36,7 @@ module Network.SocketA.POSIX.TCPIP
     pattern S.SHUT_RD,
     pattern S.SHUT_WR,
     pattern S.SHUT_RDWR,
+    pattern S.INVALID_SOCKET,
     S.addrinfo0,
 
     -- * Functions

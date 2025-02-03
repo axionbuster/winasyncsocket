@@ -42,16 +42,6 @@ module Network.SocketA
     pattern SD_SEND,
     pattern SD_BOTH,
     pattern INVALID_SOCKET,
-    pattern Success,
-    pattern NotSupported,
-    pattern ConnectionReset,
-    pattern SOCKET_ERROR,
-#if defined(mingw32_HOST_OS)
-    pattern WouldBlock,
-    pattern Pending,
-#else
-    pattern InProgress,
-#endif
 
     -- * Operations
     startup,
@@ -107,6 +97,10 @@ pattern SHUT_RDWR = SD_BOTH
 #else
 -- | Socket exception type; in POSIX systems, this is an alias for 'IOError'
 -- but in Windows, it is its own type
+--
+-- Currently, you are not allowed to inspect the error code in either
+-- platform, so you should not rely on the error code for error handling.
+-- Socket errors need to be treated as completely opaque, for now.
 type SocketError = IOError
 
 pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow

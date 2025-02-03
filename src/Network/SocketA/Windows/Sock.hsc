@@ -132,7 +132,12 @@ import System.Win32.Types
 
 #include "ax.h"
 
--- | raw socket error as returned by WSAGetLastError()
+-- | raw socket error as returned by WSAGetLastError(); in POSIX,
+-- we use the errno variable instead
+--
+-- Currently, you are not allowed to inspect the error code in either
+-- platform, so you should not rely on the error code for error handling.
+-- Socket errors need to be treated as completely opaque, for now.
 newtype SocketError = SocketError { getskerr :: CInt }
   deriving newtype (Eq, Storable)
   deriving stock (Show)
@@ -185,6 +190,10 @@ pattern Success :: SocketError
 pattern Success = SocketError 0
 
 -- | operation is not permitted because it would block (Windows)
+--
+-- the POSIX equivalent is @InProgress@. the two are not entirely
+-- equivalent, as nonblocking I\/O is done very differently on Windows
+-- compared to POSIX systems, but they are used in similar contexts
 pattern WouldBlock :: SocketError
 pattern WouldBlock = SocketError #{const WSAEWOULDBLOCK}
 
@@ -205,11 +214,11 @@ throwsk = throwIO
 
 -- | check error by calling
 --
---  - 'getErrno' on POSIX
+--  - @getErrno@ on POSIX
 --  - 'WSAGetLastError' on Windows
 --
--- note: all exported functions already call WSAGetLastError to report the
--- actual error code, so user code should not expect to get this error
+-- note: all exported functions already call @getErrno@/'WSAGetLastError' to
+-- report the actual error code, so user code should not expect this error
 pattern SOCKET_ERROR :: SocketError
 pattern SOCKET_ERROR = SocketError (#{const SOCKET_ERROR})
 
