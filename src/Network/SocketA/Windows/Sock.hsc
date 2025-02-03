@@ -37,6 +37,7 @@ module Network.SocketA.Windows.Sock
   , LPWSABUF
   , WSAPROTOCOL_INFOW(..)
   , AsyncStatus(..)
+  , AddressLen(..)
     -- * Patterns
   , pattern ADDRINFOW0
   , pattern AI_zero
@@ -84,7 +85,6 @@ module Network.SocketA.Windows.Sock
   , finishaccept
   , sockaddr
   , connectex
-  , connectex'
   , recv
   , recvmany
   , send
@@ -95,6 +95,7 @@ module Network.SocketA.Windows.Sock
   , sockaddrin60
   , sockaddrin6old0
   , sockaddrin
+  , withaddrpair
   ) where
 
 -- frustratingly, formatter 'ormolu' doesn't work.
@@ -460,6 +461,20 @@ socket af ty proto =
           INVALID_SOCKET -> wsagetlasterror >>= throwsk
           s -> pure s
 
+-- | a pointer to an address along with its length
+--
+-- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
+-- but it's not tracked. refer to 'withaddrpair' for safe usage
+data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: CSize }
+  deriving stock (Show)
+
+-- | do something with an the address\/length pair from an 'AddrInfo'
+withaddrpair :: AddrInfo -> (AddressLen -> IO a) -> IO a
+withaddrpair (AddrInfo a) = (addrpair a >>=)
+  where
+    addrpair b = addrpair_ <$> withForeignPtr b (peek . castPtr)
+    addrpair_ (b :: ADDRINFOW) = AddressLen b.ai_addr b.ai_addrlen
+
 -- | a socket address (opaque)
 data SockAddr = SockAddr
   { sa_family :: CShort
@@ -600,16 +615,9 @@ foreign import capi unsafe "winsock2.h bind"
   c_bind :: SOCKET -> Ptr SockAddr -> CInt -> IO CInt
 
 -- | bind a socket to an address
-bind :: SOCKET -> SockAddrIn -> IO ()
-bind s i = mask_ do
-  alloca \j -> do
-    poke j i
-    -- Microsoft: Since the SOCKADDR_STORAGE structure is sufficiently large to
-    -- store address information for IPv4, IPv6, or other address families, its
-    -- use promotes protocol-family and protocol-version independence and
-    -- simplifies cross-platform development.
-    -- https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms740504(v=vs.85)
-    c_bind s (castPtr j) #{size SOCKADDR_STORAGE} >>= ok (pure ())
+bind :: SOCKET -> AddressLen -> IO ()
+bind s i = mask_ do c_bind s i.aaddr j >>= ok (pure ())
+  where j = fromIntegral i.alen
 
 foreign import capi unsafe "winsock2.h listen"
   c_listen :: SOCKET -> CInt -> IO CInt
@@ -868,17 +876,10 @@ foreign import ccall "dynamic"
   vt_connectex :: FunPtr ConnectEx -> ConnectEx
 
 -- | given a bound socket, connect to a server
-connectex :: VTABLE -> SOCKET -> Ptr SockAddr ->
-             Int -> LPOVERLAPPED -> IO AsyncStatus
-connectex vt s a al ol =
+connectex :: VTABLE -> SOCKET -> AddressLen -> LPOVERLAPPED -> IO AsyncStatus
+connectex vt s a ol =
   let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
-   in mask_ do cx s a (fromIntegral al) nullPtr 0 nullPtr ol >>= ok'
-
--- | run 'connectex' on an 'AddrInfo' using 'sockaddr' to extract the
--- @'Ptr' 'SockAddr'@
-connectex' :: VTABLE -> SOCKET -> AddrInfo ->
-              Int -> LPOVERLAPPED -> IO AsyncStatus
-connectex' vt s a al ol = sockaddr a >>= \b -> connectex vt s b al ol
+   in mask_ do cx s a.aaddr (fromIntegral a.alen) nullPtr 0 nullPtr ol >>= ok'
 
 foreign import capi unsafe "winsock2.h WSARecv"
   wsarecv :: SOCKET -> LPWSABUF -> DWORD -> LPDWORD -> LPDWORD ->

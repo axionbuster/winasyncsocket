@@ -25,7 +25,7 @@ server = do
       mksocket = socket ai1.ai_family ai1.ai_socktype ai1.ai_protocol
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
-    sockaddrin addr >>= bind sock
+    withaddrpair addr do bind sock
     listen sock
     hPutStrLn stderr "listening for connections..."
     forever do
@@ -62,7 +62,7 @@ client = do
   addr <- getaddrinfo "127.0.0.1" "50123" $ Just ai1
   bracket mksocket close \sock -> do
     traceIO "connecting to server"
-    connect sock addr
+    withaddrpair addr do connect sock
     hPutStrLn stderr "connected. type messages to send (Ctrl+C to exit)"
     forever do
       line <- C.getLine

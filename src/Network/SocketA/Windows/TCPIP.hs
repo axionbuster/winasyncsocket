@@ -26,27 +26,32 @@ module Network.SocketA.Windows.TCPIP
     S.In6Addr (..),
     S.SockAddrIn6 (..),
     S.SockAddrIn6Old (..),
+    S.AddressLen (..),
 
     -- * Operations
     startup,
     socket,
     S.getaddrinfo,
+    S.withaddrpair,
     setsockopt_dword,
-    bind,
-    listen,
+    S.bind,
+    S.listen,
     accept,
     connect,
     recvbuf,
     recvBuf,
+    recvall,
+    recvAll,
     sendbuf,
     sendBuf,
     sendall,
     sendAll,
     recv,
     send,
-    shutdown,
-    close,
+    S.shutdown,
+    S.close,
     addrinfow0,
+    addrinfo0,
     S.sockaddr0,
     S.sockaddrin0,
     S.in6addr0,
@@ -78,6 +83,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as B
 import Data.ByteString.Internal (createAndTrim)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+import Data.Function
 import Data.IORef
 import Foreign hiding (void)
 import GHC.Event.Windows
@@ -87,7 +93,6 @@ import Network.SocketA.Windows.Sock
     AddrInfo (..),
     ShutdownHow (..),
     SocketError (..),
-    close,
     pattern SD_BOTH,
     pattern SD_RECEIVE,
     pattern SD_SEND,
@@ -95,6 +100,10 @@ import Network.SocketA.Windows.Sock
 import Network.SocketA.Windows.Sock qualified as S
 import System.IO.Unsafe
 import System.Win32.Types
+
+-- | a zero address info
+addrinfo0 :: S.ADDRINFOW
+addrinfo0 = addrinfow0
 
 -- global virtual function table for certain socket extension methods.
 -- this requirement is imposed by Windows Sockets API
@@ -191,26 +200,27 @@ accept l = do
     do const $ S.finishaccept l a
     do const (pure a)
 
--- get the ai_addrlen from an AddrInfo pointer
-getailen :: AddrInfo -> IO Int
-getailen (AddrInfo a) = withForeignPtr a do
-  fmap (fromIntegral . S.ai_addrlen) . peek
-
 -- | connect an unbound socket to an address
-connect :: S.SOCKET -> AddrInfo -> IO ()
+connect :: S.SOCKET -> S.AddressLen -> IO ()
 connect l a = do
   -- binding l is a Microsoft requirement (using ConnectEx extension)
-  S.bind
-    l
-    S.sockaddrin0
-      { S.sin_family = fromIntegral . S.unaddrfamily $ S.AF_INET,
-        S.sin_addr = S.INADDR_ANY,
-        S.sin_port = 0
-      }
+  alloca \b -> do
+    poke b $
+      S.sockaddrin0
+        { S.sin_family = fromIntegral . S.unaddrfamily $ S.AF_INET,
+          S.sin_addr = S.INADDR_ANY,
+          S.sin_port = 0
+        }
+    S.bind
+      l
+      ( S.AddressLen
+          (castPtr b)
+          (fromIntegral $ sizeOf (S.sockaddrin0 :: S.SockAddrIn))
+      )
   overlapped
     do "connect"
     do handleu l
-    do \v o -> getailen a >>= \b -> S.connectex' v l a b o
+    do \v -> S.connectex v l a
     do const (pure ())
     do const (pure ())
 
@@ -255,18 +265,6 @@ recv s a = createAndTrim a \p -> recvbuf s p a
 send :: S.SOCKET -> ByteString -> IO Int
 send s a = unsafeUseAsCStringLen a $ uncurry $ sendbuf s
 
--- | shut down a socket
-shutdown :: S.SOCKET -> ShutdownHow -> IO ()
-shutdown s = S.shutdown s
-
--- | bind a socket to an address
-bind :: S.SOCKET -> S.SockAddrIn -> IO ()
-bind s = S.bind s
-
--- | mark the socket as /listening/ for new connections
-listen :: S.SOCKET -> IO ()
-listen s = S.listen s
-
 -- | set a socket option (@DWORD@)
 setsockopt_dword ::
   S.SOCKET ->
@@ -279,6 +277,24 @@ setsockopt_dword s = S.setsockopt_dword s
 -- | term equal to 'S.ADDRINFOW0' (useful for record updates)
 addrinfow0 :: ADDRINFOW
 addrinfow0 = S.ADDRINFOW0
+
+-- | recv at most @n@ bytes from a socket, where the returned length
+-- is only less than @n@ if EOF is reached
+recvall, recvAll :: S.Socket -> Int -> IO ByteString
+recvall _ a | a < 0 = error $ "recvall: invalid length: " ++ show a
+recvall s a =
+  B.concat <$> do
+    a & fix \r i -> do
+      b <- recv s i
+      if B.null b
+        then pure []
+        else do
+          let t = i - B.length b
+          if t > 0
+            then (b :) <$> r t
+            else pure [b]
+recvAll = recvall
+{-# INLINE recvAll #-}
 
 -- | attempt to send all of the given 'ByteString'
 sendall, sendAll :: S.SOCKET -> ByteString -> IO ()

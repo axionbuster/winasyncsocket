@@ -19,7 +19,7 @@ module Network.SocketA.POSIX.Sock
   , AddrFlag(..)
   , GetAddrInfoError(..)
   , SockAddr
-  , AddressLen
+  , AddressLen(..)
   , AddrInfo
   , AddrInfo_(..)
   , ShutdownHow(..)

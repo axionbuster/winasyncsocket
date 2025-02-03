@@ -38,6 +38,7 @@ library
   default-extensions:
       AllowAmbiguousTypes
       BlockArguments
+      DataKinds
       DeriveAnyClass
       DerivingStrategies
       DerivingVia
@@ -84,6 +85,7 @@ executable winasyncsocket-exe
   default-extensions:
       AllowAmbiguousTypes
       BlockArguments
+      DataKinds
       DeriveAnyClass
       DerivingStrategies
       DerivingVia
