@@ -8,12 +8,12 @@ This module provides a unified interface for asynchronous socket programming
 across Windows and POSIX platforms. It abstracts over platform-specific
 differences through the 'Networking' typeclass.
 
-The interface supports common TCP/IP operations like accepting connections,
+The interface supports common TCP\/IP operations like accepting connections,
 sending and receiving data, with proper integration into each platform's
-event notification system (IOCP on Windows, epoll/kqueue on POSIX).
+event notification system (IOCP on Windows, epoll\/kqueue on POSIX).
 
 All operations are non-blocking by default and work with the platform's
-native async I/O mechanisms.
+native async I\/O mechanisms.
 -}
 module Network.SocketA (Platform (..), Networking (..)) where
 
@@ -54,6 +54,9 @@ class Networking (p :: Platform) where
   type SocketType p
 
   -- | Initialize the networking subsystem (Windows only, no-op on POSIX)
+  --
+  -- It's safe to call this function multiple times, as it will only initialize
+  -- the subsystem once.
   startup :: IO ()
   -- | Create a new non-blocking socket
   socket :: AddrFamily p -> SocketType p -> Protocol p -> IO (Socket p)
@@ -81,6 +84,16 @@ class Networking (p :: Platform) where
   getaddrinfo :: String -> String -> Maybe (AddrInfo_ p) -> IO (AddrInfo p)
   -- | Safely work with address/length pairs from AddrInfo
   withaddrpair :: AddrInfo p -> (AddressLen p -> IO a) -> IO a
+  -- | Safely work with a new socket, closing it automatically when done
+  --
+  -- This function works as though it were implemented using 'bracket' as:
+  --
+  -- @
+  -- withsocket af st pr f = bracket (socket af st pr) close f
+  -- @
+  withsocket :: AddrFamily p -> SocketType p -> Protocol p ->
+                (Socket p -> IO a) -> IO a
+  withsocket af st pr = bracket (socket @p af st pr) (close @p)
 
 #if defined(mingw32_HOST_OS)
 instance Networking 'P where
