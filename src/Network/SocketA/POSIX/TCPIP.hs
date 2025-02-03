@@ -55,7 +55,7 @@ module Network.SocketA.POSIX.TCPIP
     sendAll,
     S.addrpair,
     S.addrpair_,
-    S.withaddrpair,
+    S.withaddrlen,
   )
 where
 

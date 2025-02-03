@@ -13,12 +13,12 @@
 module Network.SocketA
   ( -- * Types
     AddrFamily (..),
-    AddrInfo (..),
+    AddrInfo,
     AddrInfo_ (..),
 #if defined(mingw32_HOST_OS)
     ADDRINFOW (..),
 #endif
-    AddressLen (..),
+    AddressLen,
     SocketError (..),
     Protocol (..),
     ShutdownHow (..),
@@ -56,9 +56,10 @@ module Network.SocketA
     shutdown,
     close,
     getaddrinfo,
-    withaddrpair,
+    withaddrlen,
     withsocket,
     catchsocket,
+    handlesocket,
   )
 where
 
@@ -92,7 +93,8 @@ pattern SHUT_WR = SD_SEND
 pattern SHUT_RDWR = SD_BOTH
 
 #else
--- | Socket exception type
+-- | Socket exception type; in POSIX systems, this is an alias for 'IOError'
+-- but in Windows, it is its own type
 type SocketError = IOError
 
 pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
@@ -128,3 +130,10 @@ getaddrinfo a b c =
 -- - POSIX: 'IOError', which is a type alias for 'IOException'
 catchsocket :: IO a -> (SocketError -> IO a) -> IO a
 catchsocket a b = catch a \(e :: SocketError) -> b e
+
+-- | Handle socket exceptions
+--
+-- - Windows: 'SocketError', which is its own type
+-- - POSIX: 'IOError', which is a type alias for 'IOException'
+handlesocket :: (SocketError -> IO a) -> IO a -> IO a
+handlesocket = flip catchsocket

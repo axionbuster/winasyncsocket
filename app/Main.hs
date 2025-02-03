@@ -30,7 +30,7 @@ server = do
   traceIO $ "starting server on " ++ theaddr ++ ":" ++ theport
   addr <- getaddrinfo theaddr theport $ Just ai1
   bracket mksocket close \sock -> do
-    withaddrpair addr do bind sock
+    withaddrlen addr do bind sock
     listen sock
     traceIO "listening for connections..."
     forever do
@@ -40,7 +40,7 @@ server = do
         do
           \c -> do
             traceIO (withColor "\ESC[32m" "client connected")
-            handle (\(e :: IOException) -> hPrint stderr e) do
+            handle (\(e :: SocketError) -> hPrint stderr e) do
               fix \loop -> do
                 traceIO "waiting for message"
                 msg <- recv c 1024
@@ -63,7 +63,7 @@ client = do
   addr <- getaddrinfo theaddr theport $ Just ai1
   bracket mksocket close \sock -> do
     traceIO "connecting to server"
-    withaddrpair addr do connect sock
+    withaddrlen addr do connect sock
     traceIO "connected. type messages to send (Ctrl+C to exit)"
     forever do
       line <- C.getLine

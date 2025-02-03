@@ -61,7 +61,7 @@ module Network.SocketA.POSIX.Sock
   , addrinfo0
   , addrpair
   , addrpair_
-  , withaddrpair
+  , withaddrlen
   -- * 'AIO' helpers
   , underaio
   , aalloca
@@ -200,7 +200,7 @@ instance Exception GetAddrInfoError where
 -- | a pointer to an address along with its length
 --
 -- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
--- but it's not tracked. refer to 'withaddrpair' for safe usage
+-- but it's not tracked. refer to 'withaddrlen' for safe usage
 data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: Socklen }
   deriving stock (Show)
 
@@ -213,31 +213,33 @@ type Socklen = #{type socklen_t}
 
 -- | address information
 --
--- contrast this with @ADDRINFOW@ (Win32); the locations of 'ai_addr' and
--- 'ai_canonname' are swapped.
+-- the Haskell representation orders the fields in WinSock order; the
+-- 'Storable' instance will take care of reordering them for POSIX
 data AddrInfo_ = AddrInfo_
   { ai_flags :: AddrFlag
   , ai_family :: AddrFamily
   , ai_socktype :: SocketType
   , ai_protocol :: Protocol
   , ai_addrlen :: Socklen
-  , ai_addr :: Ptr SockAddr
   , ai_canonname :: CString
+  , ai_addr :: Ptr SockAddr
   , ai_next :: Ptr AddrInfo_
   } deriving (Eq, Show)
 
 instance Storable AddrInfo_ where
   sizeOf _ = #{size struct addrinfo}
   alignment _ = #{alignment struct addrinfo}
+  -- the 'ai_canonname' field actually follows the 'ai_addr' field
+  -- in POSIX; this is different from the way it's done in Windows Sockets
   peek p = do
-    flags <- peekByteOff p #{offset struct addrinfo, ai_flags}
-    family <- peekByteOff p #{offset struct addrinfo, ai_family}
-    socktype <- peekByteOff p #{offset struct addrinfo, ai_socktype}
-    protocol <- peekByteOff p #{offset struct addrinfo, ai_protocol}
-    addrlen <- peekByteOff p #{offset struct addrinfo, ai_addrlen}
-    addr <- peekByteOff p #{offset struct addrinfo, ai_addr}
-    canonname <- peekByteOff p #{offset struct addrinfo, ai_canonname}
-    next <- peekByteOff p #{offset struct addrinfo, ai_next}
+    flags <- #{peek struct addrinfo, ai_flags} p
+    family <- #{peek struct addrinfo, ai_family} p
+    socktype <- #{peek struct addrinfo, ai_socktype} p
+    protocol <- #{peek struct addrinfo, ai_protocol} p
+    addrlen <- #{peek struct addrinfo, ai_addrlen} p
+    addr <- #{peek struct addrinfo, ai_addr} p
+    canonname <- #{peek struct addrinfo, ai_canonname} p
+    next <- #{peek struct addrinfo, ai_next} p
     pure AddrInfo_
       { ai_flags = AddrFlag flags
       , ai_family = AddrFamily family
@@ -248,15 +250,15 @@ instance Storable AddrInfo_ where
       , ai_canonname = canonname
       , ai_next = next
       }
-  poke p AddrInfo_ {..} = do
-    pokeByteOff p #{offset struct addrinfo, ai_flags} (unaddrflag ai_flags)
-    pokeByteOff p #{offset struct addrinfo, ai_family} (undomain ai_family)
-    pokeByteOff p #{offset struct addrinfo, ai_socktype} (unsockettype ai_socktype)
-    pokeByteOff p #{offset struct addrinfo, ai_protocol} (unprotocol ai_protocol)
-    pokeByteOff p #{offset struct addrinfo, ai_addrlen} ai_addrlen
-    pokeByteOff p #{offset struct addrinfo, ai_addr} ai_addr
-    pokeByteOff p #{offset struct addrinfo, ai_canonname} ai_canonname
-    pokeByteOff p #{offset struct addrinfo, ai_next} ai_next
+    poke p AddrInfo_ {..} = do
+    #{poke struct addrinfo, ai_flags} p (unaddrflag ai_flags)
+    #{poke struct addrinfo, ai_family} p (undomain ai_family)
+    #{poke struct addrinfo, ai_socktype} p (unsockettype ai_socktype)
+    #{poke struct addrinfo, ai_protocol} p (unprotocol ai_protocol)
+    #{poke struct addrinfo, ai_addrlen} p ai_addrlen
+    #{poke struct addrinfo, ai_addr} p ai_addr
+    #{poke struct addrinfo, ai_canonname} p ai_canonname
+    #{poke struct addrinfo, ai_next} p ai_next
 
 -- | the zero value for 'AddrInfo_'
 addrinfo0 :: AddrInfo_
@@ -266,8 +268,8 @@ addrinfo0 = AddrInfo_
   , ai_socktype = sockettype0
   , ai_protocol = protocol0
   , ai_addrlen = 0
-  , ai_addr = nullPtr
   , ai_canonname = nullPtr
+  , ai_addr = nullPtr
   , ai_next = nullPtr
   }
 
@@ -282,14 +284,14 @@ addrpair_ AddrInfo_ {..} = AddressLen ai_addr ai_addrlen
 -- | extract the 'SockAddr' from an 'AddrInfo' (assuming it's valid)
 --
 -- __SAFETY__: highly unsafe; lifetime is tied to the parent 'AddrInfo',
--- but it's not tracked. use 'withaddrpair' instead if possible
+-- but it's not tracked. use 'withaddrlen' instead if possible
 addrpair :: AddrInfo -> IO AddressLen
 addrpair a = withForeignPtr a (peek . castPtr) <&> addrpair_
 {-# INLINE addrpair #-}
 
 -- | do something with an the address\/length pair from an 'AddrInfo'
-withaddrpair :: AddrInfo -> (AddressLen -> IO a) -> IO a
-withaddrpair a = (addrpair a >>=)
+withaddrlen :: AddrInfo -> (AddressLen -> IO a) -> IO a
+withaddrlen a = (addrpair a >>=)
 
 foreign import capi unsafe "netdb.h getaddrinfo"
   c_getaddrinfo :: ConstPtr CChar -> ConstPtr CChar -> ConstPtr AddrInfo_ ->

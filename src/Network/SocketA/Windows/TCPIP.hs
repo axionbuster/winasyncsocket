@@ -32,7 +32,7 @@ module Network.SocketA.Windows.TCPIP
     startup,
     socket,
     S.getaddrinfo,
-    S.withaddrpair,
+    S.withaddrlen,
     setsockopt_dword,
     S.bind,
     S.listen,

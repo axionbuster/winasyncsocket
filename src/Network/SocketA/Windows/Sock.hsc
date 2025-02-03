@@ -95,7 +95,7 @@ module Network.SocketA.Windows.Sock
   , sockaddrin60
   , sockaddrin6old0
   , sockaddrin
-  , withaddrpair
+  , withaddrlen
   ) where
 
 -- frustratingly, formatter 'ormolu' doesn't work.
@@ -342,6 +342,8 @@ pattern ADDRINFOW0 =
 
 -- | a 'ForeignPtr' wrapper over 'ADDRINFOW'. it frees the 'ADDRINFOW' using
 -- the correct function
+--
+-- to obtain the underlying address (say, for 'bind'), use 'withaddrlen'
 newtype AddrInfo = AddrInfo (ForeignPtr ADDRINFOW)
   deriving (Eq, Show)
 
@@ -464,13 +466,13 @@ socket af ty proto =
 -- | a pointer to an address along with its length
 --
 -- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
--- but it's not tracked. refer to 'withaddrpair' for safe usage
+-- but it's not tracked. refer to 'withaddrlen' for safe usage
 data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: CSize }
   deriving stock (Show)
 
 -- | do something with an the address\/length pair from an 'AddrInfo'
-withaddrpair :: AddrInfo -> (AddressLen -> IO a) -> IO a
-withaddrpair (AddrInfo a) = (addrpair a >>=)
+withaddrlen :: AddrInfo -> (AddressLen -> IO a) -> IO a
+withaddrlen (AddrInfo a) = (addrpair a >>=)
   where
     addrpair b = addrpair_ <$> withForeignPtr b (peek . castPtr)
     addrpair_ (b :: ADDRINFOW) = AddressLen b.ai_addr b.ai_addrlen
