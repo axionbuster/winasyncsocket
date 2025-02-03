@@ -15,28 +15,31 @@ module Network.SocketA
     AddrFamily (..),
     AddrInfo (..),
     AddrInfo_ (..),
+#if defined(mingw32_HOST_OS)
+    ADDRINFOW (..),
+#endif
     AddressLen (..),
     SocketError (..),
     Protocol (..),
     ShutdownHow (..),
     Socket,
     SocketType (..),
-#if defined(mingw32_HOST_OS)
-    SocketError (..),
-#endif
 
     -- * Constants and Patterns
 #if defined(linux_HOST_OS)
-    pattern S.SOCK_NONBLOCK,
-    pattern S.SOCK_CLOEXEC,
+    pattern SOCK_NONBLOCK,
+    pattern SOCK_CLOEXEC,
 #endif
-    pattern S.SOCK_STREAM,
-    pattern S.AF_INET,
-    pattern S.AF_INET6,
-    pattern S.IPPROTO_TCP,
-    pattern S.SHUT_RD,
-    pattern S.SHUT_WR,
-    pattern S.SHUT_RDWR,
+    pattern SOCK_STREAM,
+    pattern AF_INET,
+    pattern AF_INET6,
+    pattern IPPROTO_TCP,
+    pattern SHUT_RD,
+    pattern SHUT_WR,
+    pattern SHUT_RDWR,
+    pattern SD_RECEIVE,
+    pattern SD_SEND,
+    pattern SD_BOTH,
 
     -- * Operations
     startup,
@@ -75,14 +78,33 @@ withsocket af st pr = bracket (socket af st pr) close
 -- | A node in the address information list
 type AddrInfo_ = ADDRINFOW
 
--- | An empty address information node
-addrinfo0 :: AddrInfo_
-addrinfo0 = addrinfow0
-{-# INLINE addrinfo0 #-}
+-- Windows and POSIX use different terms for the same thing (shutdown how)
+
+pattern SHUT_RD, SHUT_WR, SHUT_RDWR :: ShutdownHow
+
+-- | Shutdown the receive channel; alias for 'SD_RECEIVE'
+pattern SHUT_RD = SD_RECEIVE
+
+-- | Shutdown the send channel; alias for 'SD_SEND'
+pattern SHUT_WR = SD_SEND
+
+-- | Shutdown both channels; alias for 'SD_BOTH'
+pattern SHUT_RDWR = SD_BOTH
 
 #else
 -- | Socket exception type
 type SocketError = IOError
+
+pattern SD_RECEIVE, SD_SEND, SD_BOTH :: ShutdownHow
+
+-- | Shutdown the receive channel; alias for 'SHUT_RD'
+pattern SD_RECEIVE = SHUT_RD
+
+-- | Shutdown the send channel; alias for 'SHUT_WR'
+pattern SD_SEND = SHUT_WR
+
+-- | Shutdown both channels; alias for 'SHUT_RDWR'
+pattern SD_BOTH = SHUT_RDWR
 
 -- | (For POSIX systems, this is a no-op)
 startup :: IO ()
