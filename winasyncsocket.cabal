@@ -5,7 +5,7 @@ cabal-version: 2.2
 -- see: https://github.com/sol/hpack
 
 name:           winasyncsocket
-version:        0.2.0.0
+version:        0.2.0.1
 synopsis:       Cross-Platform Nonblocking Socket Programming in Haskell
 description:    Cross-platform nonblocking socket programming library utilizing native I\/O facilities: IOCP on Windows, epoll on Linux, and kqueue on macOS/BSD. Provides direct integration with GHC's I\/O manager for high-performance network operations.
 category:       Network, System

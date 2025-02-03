@@ -8,6 +8,10 @@ and this project adheres to the
 
 ## Unreleased
 
+## 0.2.0.1 - 2025-02-03
+
+- Fix problem in README.md
+
 ## 0.2.0.0 - 2025-02-03
 
 - Integrated with [unliftio-core] for better monad transformer support.
