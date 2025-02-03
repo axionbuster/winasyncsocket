@@ -25,7 +25,7 @@ While the package is named `winasyncsocket` due to its initial focus on Windows,
 
 ### Windows Users
 
-When using this package on Windows, you must compile your program with the GHC option `-with-rtsopts=--io-manager=native`. Without this option, socket operations may stall indefinitely. Add this to your project's GHC options:
+When using this package on Windows, you must compile your program with the GHC option `-with-rtsopts=--io-manager=native`. Without this option, socket operations may stall indefinitely.
 
 ## Compatibility Note
 
