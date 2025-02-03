@@ -34,8 +34,8 @@ flag unliftio
 library
   exposed-modules:
       Network.SocketA
-  other-modules:
       Network.SocketA.Types
+  other-modules:
       Paths_winasyncsocket
   autogen-modules:
       Paths_winasyncsocket

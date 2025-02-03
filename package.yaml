@@ -73,6 +73,7 @@ library:
   build-tools: hsc2hs
   exposed-modules:
     - Network.SocketA
+    - Network.SocketA.Types
   when:
     - condition: flag(unliftio)
       exposed-modules:
