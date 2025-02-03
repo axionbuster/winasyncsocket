@@ -43,7 +43,6 @@ library
       src
   default-extensions:
       BlockArguments
-      DataKinds
       DeriveAnyClass
       DerivingStrategies
       DerivingVia
@@ -95,7 +94,6 @@ executable winasyncsocket-exe
       app
   default-extensions:
       BlockArguments
-      DataKinds
       DeriveAnyClass
       DerivingStrategies
       DerivingVia

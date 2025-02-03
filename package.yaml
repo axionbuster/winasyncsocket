@@ -10,7 +10,6 @@ language: GHC2021
 
 default-extensions:
 - BlockArguments
-- DataKinds
 - DeriveAnyClass
 - DerivingStrategies
 - DerivingVia
