@@ -19,7 +19,7 @@ module Network.SocketA.POSIX.Sock
   , AddrFlag(..)
   , GetAddrInfoError(..)
   , SockAddr
-  , AddressLen(..)
+  , AddrLen(..)
   , AddrInfo
   , AddrInfo_(..)
   , ShutdownHow(..)
@@ -36,6 +36,12 @@ module Network.SocketA.POSIX.Sock
   , pattern SHUT_RD
   , pattern SHUT_WR
   , pattern SHUT_RDWR
+  , pattern INVALID_SOCKET
+  , pattern SOCKET_ERROR
+  , pattern Success
+  , pattern NotSupported
+  , pattern ConnectionReset
+  , pattern InProgress
     -- * Operations
   , socket
   , close
@@ -129,9 +135,39 @@ protocol0 = Protocol 0
 addrflag0 :: AddrFlag
 addrflag0 = AddrFlag 0
 
+-- | invalid socket handle
+pattern INVALID_SOCKET :: Socket
+pattern INVALID_SOCKET = Socket (-1)
+
 -- result; negative 1 is error
 newtype RN1 = RN1 { unrn1 :: CInt }
   deriving newtype (Show, Eq, Num)
+
+-- | no error
+pattern Success :: Errno
+pattern Success = Errno 0
+
+-- | check error by calling
+--
+--  - 'getErrno' on POSIX
+--  - 'WSAGetLastError' on Windows
+--
+-- note: all exported functions already call WSAGetLastError to report the
+-- actual error code, so user code should not expect to get this error
+pattern SOCKET_ERROR :: Errno
+pattern SOCKET_ERROR = Errno (-1)
+
+-- | operation is not supported
+pattern NotSupported :: Errno
+pattern NotSupported = Errno #{const ENOTSUP}
+
+-- | connection has been reset
+pattern ConnectionReset :: Errno
+pattern ConnectionReset = Errno #{const ECONNRESET}
+
+-- | not an error; operation will complete in the background (POSIX)
+pattern InProgress :: Errno
+pattern InProgress = Errno #{const EINPROGRESS}
 
 -- perform the action unless the number is -1. if it
 -- is, inspect errno immediately and then throw
@@ -201,7 +237,7 @@ instance Exception GetAddrInfoError where
 --
 -- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
 -- but it's not tracked. refer to 'withaddrlen' for safe usage
-data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: Socklen }
+data AddrLen = AddrLen { aaddr :: Ptr SockAddr, alen :: Socklen }
   deriving stock (Show)
 
 -- | opaque pointer to a @struct sockaddr@ (one of many variants thereof)
@@ -277,20 +313,20 @@ addrinfo0 = AddrInfo_
 --
 -- __SAFETY__: highly unsafe; lifetime is tied to the parent 'AddrInfo_',
 -- but it's not tracked
-addrpair_ :: AddrInfo_ -> AddressLen
-addrpair_ AddrInfo_ {..} = AddressLen ai_addr ai_addrlen
+addrpair_ :: AddrInfo_ -> AddrLen
+addrpair_ AddrInfo_ {..} = AddrLen ai_addr ai_addrlen
 {-# INLINE addrpair_ #-}
 
 -- | extract the 'SockAddr' from an 'AddrInfo' (assuming it's valid)
 --
 -- __SAFETY__: highly unsafe; lifetime is tied to the parent 'AddrInfo',
 -- but it's not tracked. use 'withaddrlen' instead if possible
-addrpair :: AddrInfo -> IO AddressLen
+addrpair :: AddrInfo -> IO AddrLen
 addrpair a = withForeignPtr a (peek . castPtr) <&> addrpair_
 {-# INLINE addrpair #-}
 
 -- | do something with an the address\/length pair from an 'AddrInfo'
-withaddrlen :: AddrInfo -> (AddressLen -> IO a) -> IO a
+withaddrlen :: AddrInfo -> (AddrLen -> IO a) -> IO a
 withaddrlen a = (addrpair a >>=)
 
 foreign import capi unsafe "netdb.h getaddrinfo"
@@ -367,7 +403,7 @@ pattern SHUT_RDWR = ShutdownHow #{const SHUT_RDWR}
 -- | Bind a socket to a local address.
 --
 -- Required before 'listen' for server sockets.
-bind :: Socket -> AddressLen -> IO ()
+bind :: Socket -> AddrLen -> IO ()
 bind s a = mask_ do
   c_bind s (ConstPtr a.aaddr) a.alen >>= okn1_ "bind"
 
@@ -443,6 +479,19 @@ connecterror s =
   getsockopt_int s #{const SOL_SOCKET} #{const SO_ERROR} <&> \case
     0 -> Nothing
     e -> Just (Errno e)
+
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntlv :: Socket -> CInt -> IO RN1
+
+foreign import capi unsafe "fcntl.h fcntl"
+  c_fcntl1i :: Socket -> CInt -> CInt -> IO RN1
+
+-- | using @fcntl@, mark a socket as non-blocking
+setnonblock :: Socket -> IO ()
+setnonblock s = mask_ do
+  f <- c_fcntlv s #{const F_GETFL} >>= okn1 "setnonblock (get)" (pure . unrn1)
+  c_fcntl1i s #{const F_SETFL} (f .|. #{const O_NONBLOCK}) >>=
+    okn1_ "setnonblock (set)"
 
 -- now we begin to have nonblocking async calls...
 
@@ -549,7 +598,7 @@ foreign import capi unsafe "sys/socket.h connect"
 --
 -- For non-blocking sockets, may throw 'empty' before the connection completes.
 -- The caller should wait for writability to detect connection completion.
-connect :: Socket -> AddressLen -> AIO ()
+connect :: Socket -> AddrLen -> AIO ()
 connect s a =
   amask_ do
     c_connect s (ConstPtr a.aaddr) a.alen >>= \case
@@ -613,16 +662,3 @@ foreign import capi unsafe "sys/socket.h send"
 -- Throws 'empty' if operation would block.
 send :: Socket -> Ptr Void -> CSize -> SendFlags -> AIO CSsize
 send = sendrecv "send" c_send
-
-foreign import capi unsafe "fcntl.h fcntl"
-  c_fcntlv :: Socket -> CInt -> IO RN1
-
-foreign import capi unsafe "fcntl.h fcntl"
-  c_fcntl1i :: Socket -> CInt -> CInt -> IO RN1
-
--- | using @fcntl@, mark a socket as non-blocking
-setnonblock :: Socket -> IO ()
-setnonblock s = mask_ do
-  f <- c_fcntlv s #{const F_GETFL} >>= okn1 "setnonblock (get)" (pure . unrn1)
-  c_fcntl1i s #{const F_SETFL} (f .|. #{const O_NONBLOCK}) >>=
-    okn1_ "setnonblock (set)"

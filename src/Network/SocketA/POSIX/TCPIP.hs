@@ -22,7 +22,7 @@ module Network.SocketA.POSIX.TCPIP
     S.AddrInfo,
     S.ShutdownHow (..),
     S.GetAddrInfoError (..),
-    S.AddressLen,
+    S.AddrLen,
 
     -- * Constants and Patterns
 #if defined(linux_HOST_OS)
@@ -163,7 +163,7 @@ accept :: S.Socket -> IO S.Socket
 accept s = async1 evtRead (S.accept s) s
 
 -- | connect a socket to a remote address
-connect :: S.Socket -> S.AddressLen -> IO ()
+connect :: S.Socket -> S.AddrLen -> IO ()
 connect s a = do
   -- code works like 'accept', but need a special workflow...
   --  1. call 'connect', but it will almost certainly fail immediately with
@@ -232,7 +232,7 @@ recvAll = recvall
 sendall, sendAll :: S.Socket -> ByteString -> IO ()
 sendall s b =
   let a = B.length b
-      f i = when (i < a) do j <- send s b; f (i + j)
+      f i = when (i < a) do j <- send s (B.drop i b); f (i + j)
    in f 0
 sendAll = sendall
 {-# INLINE sendAll #-}

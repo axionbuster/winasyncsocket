@@ -26,7 +26,7 @@ module Network.SocketA.Windows.TCPIP
     S.In6Addr (..),
     S.SockAddrIn6 (..),
     S.SockAddrIn6Old (..),
-    S.AddressLen (..),
+    S.AddrLen (..),
 
     -- * Operations
     startup,
@@ -62,9 +62,9 @@ module Network.SocketA.Windows.TCPIP
     -- * Patterns
     pattern S.ADDRINFOW0,
     pattern S.INADDR_ANY,
-    pattern SD_RECEIVE,
-    pattern SD_SEND,
-    pattern SD_BOTH,
+    pattern S.SD_RECEIVE,
+    pattern S.SD_SEND,
+    pattern S.SD_BOTH,
     pattern S.AF_INET,
     pattern S.AF_INET6,
     pattern S.SOCK_STREAM,
@@ -74,6 +74,13 @@ module Network.SocketA.Windows.TCPIP
     pattern S.IPPROTO_IPV6,
     pattern S.SO_REUSEADDR,
     pattern S.IPV6_V6ONLY,
+    pattern S.Success,
+    pattern S.WouldBlock,
+    pattern S.NotSupported,
+    pattern S.ConnectionReset,
+    pattern S.Pending,
+    pattern S.SOCKET_ERROR,
+    pattern S.INVALID_SOCKET,
   )
 where
 
@@ -93,9 +100,6 @@ import Network.SocketA.Windows.Sock
     AddrInfo (..),
     ShutdownHow (..),
     SocketError (..),
-    pattern SD_BOTH,
-    pattern SD_RECEIVE,
-    pattern SD_SEND,
   )
 import Network.SocketA.Windows.Sock qualified as S
 import System.IO.Unsafe
@@ -121,7 +125,12 @@ globalvtable = unsafePerformIO do
       S.loadvt s >>= newIORef
 {-# NOINLINE globalvtable #-}
 
--- | set up Winsock 2
+-- | Initialize Windows Sockets on Windows; no-op on POSIX
+--
+-- Socket operations will fail if this function is not called on Windows
+--
+-- It is recommended to call this function before any other socket operations
+-- for cross-platform compatibility
 startup :: IO ()
 startup = void $ readIORef globalvtable
 
@@ -201,7 +210,7 @@ accept l = do
     do const (pure a)
 
 -- | connect an unbound socket to an address
-connect :: S.SOCKET -> S.AddressLen -> IO ()
+connect :: S.SOCKET -> S.AddrLen -> IO ()
 connect l a = do
   -- binding l is a Microsoft requirement (using ConnectEx extension)
   alloca \b -> do
@@ -213,7 +222,7 @@ connect l a = do
         }
     S.bind
       l
-      ( S.AddressLen
+      ( S.AddrLen
           (castPtr b)
           (fromIntegral $ sizeOf (S.sockaddrin0 :: S.SockAddrIn))
       )

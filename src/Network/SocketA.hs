@@ -17,9 +17,10 @@ module Network.SocketA
     AddrInfo_ (..),
 #if defined(mingw32_HOST_OS)
     ADDRINFOW (..),
+    SOCKET,
 #endif
-    AddressLen,
-    SocketError (..),
+    AddrLen,
+    SocketError,
     Protocol (..),
     ShutdownHow (..),
     Socket,
@@ -40,6 +41,17 @@ module Network.SocketA
     pattern SD_RECEIVE,
     pattern SD_SEND,
     pattern SD_BOTH,
+    pattern INVALID_SOCKET,
+    pattern Success,
+    pattern NotSupported,
+    pattern ConnectionReset,
+    pattern SOCKET_ERROR,
+#if defined(mingw32_HOST_OS)
+    pattern WouldBlock,
+    pattern Pending,
+#else
+    pattern InProgress,
+#endif
 
     -- * Operations
     startup,
@@ -108,7 +120,14 @@ pattern SD_SEND = SHUT_WR
 -- | Shutdown both channels; alias for 'SHUT_RDWR'
 pattern SD_BOTH = SHUT_RDWR
 
--- | (For POSIX systems, this is a no-op)
+-- | Initialize Windows Sockets on Windows; no-op on POSIX
+--
+-- It's OK to call this function multiple times
+--
+-- Socket operations will fail if this function is not called on Windows
+--
+-- It is recommended to call this function before any other socket operations
+-- for cross-platform compatibility
 startup :: IO ()
 startup = pure ()
 {-# INLINE startup #-}

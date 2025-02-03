@@ -37,7 +37,7 @@ module Network.SocketA.Windows.Sock
   , LPWSABUF
   , WSAPROTOCOL_INFOW(..)
   , AsyncStatus(..)
-  , AddressLen(..)
+  , AddrLen(..)
     -- * Patterns
   , pattern ADDRINFOW0
   , pattern AI_zero
@@ -184,7 +184,7 @@ instance Exception SocketError where
 pattern Success :: SocketError
 pattern Success = SocketError 0
 
--- | operation is not permitted because it would block
+-- | operation is not permitted because it would block (Windows)
 pattern WouldBlock :: SocketError
 pattern WouldBlock = SocketError #{const WSAEWOULDBLOCK}
 
@@ -196,18 +196,22 @@ pattern NotSupported = SocketError #{const WSAVERNOTSUPPORTED}
 pattern ConnectionReset :: SocketError 
 pattern ConnectionReset = SocketError #{const WSAECONNRESET}
 
--- | not an error; operation will complete in the background
+-- | not an error; operation will complete in the background (Windows)
 pattern Pending :: SocketError
 pattern Pending = SocketError #{const ERROR_IO_PENDING}
 
 throwsk :: SocketError -> IO a
 throwsk = throwIO
 
--- | there is a socket error to be inspected using a call to WSAGetLastError().
+-- | check error by calling
+--
+--  - 'getErrno' on POSIX
+--  - 'WSAGetLastError' on Windows
+--
 -- note: all exported functions already call WSAGetLastError to report the
 -- actual error code, so user code should not expect to get this error
-pattern SOCKET_ERROR :: CInt
-pattern SOCKET_ERROR = #{const SOCKET_ERROR}
+pattern SOCKET_ERROR :: SocketError
+pattern SOCKET_ERROR = SocketError (#{const SOCKET_ERROR})
 
 -- | raw socket type
 newtype SOCKET = SOCKET { unsocket :: WordPtr }
@@ -218,8 +222,7 @@ newtype SOCKET = SOCKET { unsocket :: WordPtr }
 pattern INVALID_SOCKET :: SOCKET
 pattern INVALID_SOCKET = SOCKET #{const INVALID_SOCKET}
 
--- | type alias for 'SOCKET' (used to mean a /managed socket/, but
--- automatic resource management has been removed in a very early version)
+-- | type alias for 'SOCKET'
 type Socket = SOCKET
 
 data WSADATA
@@ -467,15 +470,15 @@ socket af ty proto =
 --
 -- __SAFETY__: lifetime is tied to the parent 'AddrInfo_' or 'AddrInfo',
 -- but it's not tracked. refer to 'withaddrlen' for safe usage
-data AddressLen = AddressLen { aaddr :: Ptr SockAddr, alen :: CSize }
+data AddrLen = AddrLen { aaddr :: Ptr SockAddr, alen :: CSize }
   deriving stock (Show)
 
 -- | do something with an the address\/length pair from an 'AddrInfo'
-withaddrlen :: AddrInfo -> (AddressLen -> IO a) -> IO a
+withaddrlen :: AddrInfo -> (AddrLen -> IO a) -> IO a
 withaddrlen (AddrInfo a) = (addrpair a >>=)
   where
     addrpair b = addrpair_ <$> withForeignPtr b (peek . castPtr)
-    addrpair_ (b :: ADDRINFOW) = AddressLen b.ai_addr b.ai_addrlen
+    addrpair_ (b :: ADDRINFOW) = AddrLen b.ai_addr b.ai_addrlen
 
 -- | a socket address (opaque)
 data SockAddr = SockAddr
@@ -617,7 +620,7 @@ foreign import capi unsafe "winsock2.h bind"
   c_bind :: SOCKET -> Ptr SockAddr -> CInt -> IO CInt
 
 -- | bind a socket to an address
-bind :: SOCKET -> AddressLen -> IO ()
+bind :: SOCKET -> AddrLen -> IO ()
 bind s i = mask_ do c_bind s i.aaddr j >>= ok (pure ())
   where j = fromIntegral i.alen
 
@@ -878,7 +881,7 @@ foreign import ccall "dynamic"
   vt_connectex :: FunPtr ConnectEx -> ConnectEx
 
 -- | given a bound socket, connect to a server
-connectex :: VTABLE -> SOCKET -> AddressLen -> LPOVERLAPPED -> IO AsyncStatus
+connectex :: VTABLE -> SOCKET -> AddrLen -> LPOVERLAPPED -> IO AsyncStatus
 connectex vt s a ol =
   let cx = vt_connectex $ castPtrToFunPtr vt.sx_connectex
    in mask_ do cx s a.aaddr (fromIntegral a.alen) nullPtr 0 nullPtr ol >>= ok'
