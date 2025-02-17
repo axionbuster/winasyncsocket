@@ -87,7 +87,7 @@ library:
         include-dirs:
           - src/Network/SocketA/Windows
         dependencies:
-          - Win32 >= 2.13.4 && < 2.14
+          - Win32 >= 2.13.4 && < 2.15
       else:
         other-modules:
           - Network.SocketA.POSIX.TCPIP

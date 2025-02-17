@@ -78,7 +78,7 @@ library
     c-sources:
         src/Network/SocketA/Windows/ax.c
     build-depends:
-        Win32 >=2.13.4 && <2.14
+        Win32 >=2.13.4 && <2.15
   else
     other-modules:
         Network.SocketA.POSIX.TCPIP
